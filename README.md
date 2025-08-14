@@ -65,7 +65,7 @@ chmod +x tor-vpn-installer.sh
 ## 📂 Estrutura do Projeto
 
 ```
-📦 TorVPN
+📦 vpn-tor
  ├── tor-vpn-installer.sh   # Instalador principal
  ├── tor-vpn-start.sh       # Script de ativação
  └── tor-vpn-stop.sh        # Script de desativação
