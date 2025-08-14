@@ -83,5 +83,5 @@ O uso indevido pode violar leis locais.
 ---
 
 <div align="center">
-Feito por <a href="[Renegado](https://github.com/joaobarbosa0m)">Renegado</a>
+  Feito por <a href="https://github.com/joaobarbosa0m">Renegado</a>
 </div>
