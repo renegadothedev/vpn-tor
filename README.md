@@ -39,7 +39,7 @@ Transforme sua conexão em um **proxy transparente** com apenas alguns comandos.
 
 ```bash
 # 1. Baixe o instalador
-wget https://exemplo.com/tor-vpn-installer.sh
+git clone https://github.com/joaobarbosa0m/vpn-tor
 
 # 2. Dê permissão de execução
 chmod +x tor-vpn-installer.sh
