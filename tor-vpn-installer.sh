@@ -1,6 +1,6 @@
 #!/bin/bash
 # tor-vpn-installer.sh
-# Instalador Tor VPN híbrido para Linux e Termux
+# Instalador Tor VPN para Linux (Debian/Ubuntu)
 
 # Cores
 RED='\033[0;31m'
@@ -11,25 +11,13 @@ NC='\033[0m' # Sem cor
 
 clear
 echo -e "${CYAN}╔════════════════════════════════════════════╗"
-echo -e "║        🛡  Instalador Tor VPN Híbrido       ║"
+echo -e "║           🛡  Instalador Tor VPN           ║"
 echo -e "╚════════════════════════════════════════════╝${NC}"
 sleep 0.5
 
-# Detectar ambiente automaticamente
-if [ "$PREFIX" = "/data/data/com.termux/files/usr" ]; then
-    ENV="2"
-    echo -e "${CYAN}⚙️  Detectado Termux...${NC}"
-    PACKAGE_MANAGER="pkg"
-    TOR_USER="tor"
-    SUDO_CMD=""
-else
-    ENV="1"
-    echo -e "${CYAN}⚙️  Detectado Linux...${NC}"
-    PACKAGE_MANAGER="apt"
-    TOR_USER="debian-tor"
-    SUDO_CMD="sudo"
-fi
-sleep 0.5
+PACKAGE_MANAGER="apt"
+TOR_USER="debian-tor"
+SUDO_CMD="sudo"
 
 # Função para checar comando
 check_command() {
@@ -56,41 +44,34 @@ for pkg in $DEPS; do
     check_command "$pkg"
 done
 
-# Configurar Tor no Linux para TransPort e DNSPort
-if [ "$ENV" == "1" ]; then
-    echo -e "${YELLOW}⚙️ Configurando Tor para Transparent Proxy...${NC}"
-    if ! grep -q "TransPort 9040" /etc/tor/torrc; then
-        $SUDO_CMD bash -c 'cat >> /etc/tor/torrc <<EOF
+# Configurar Tor para Transparent Proxy
+echo -e "${YELLOW}⚙️ Configurando Tor para Transparent Proxy...${NC}"
+if ! grep -q "TransPort 9040" /etc/tor/torrc; then
+    $SUDO_CMD bash -c 'cat >> /etc/tor/torrc <<EOF
 VirtualAddrNetworkIPv4 10.192.0.0/10
 AutomapHostsOnResolve 1
 TransPort 9040
 DNSPort 5353
 EOF'
-        echo -e "${GREEN}✔ Tor configurado!${NC}"
-    else
-        echo -e "${GREEN}✔ Tor já estava configurado!${NC}"
-    fi
-    sleep 0.3
-    echo -e "${YELLOW}♻️ Reiniciando Tor...${NC}"
-    $SUDO_CMD systemctl restart tor
-    $SUDO_CMD systemctl enable tor >/dev/null
-    echo -e "${GREEN}✔ Tor iniciado!${NC}"
+    echo -e "${GREEN}✔ Tor configurado!${NC}"
+else
+    echo -e "${GREEN}✔ Tor já estava configurado!${NC}"
 fi
+sleep 0.3
 
-# Criar script de ativar VPN híbrido
+echo -e "${YELLOW}♻️ Reiniciando Tor...${NC}"
+$SUDO_CMD systemctl restart tor
+$SUDO_CMD systemctl enable tor >/dev/null
+echo -e "${GREEN}✔ Tor iniciado!${NC}"
+
+# Criar script de ativar VPN
 echo -e "${YELLOW}🛠 Criando script tor-vpn-start.sh...${NC}"
 cat > tor-vpn-start.sh <<EOF
 #!/bin/bash
 
 GREEN='\\033[0;32m'
 NC='\\033[0m'
-
-# Detectar sudo
-if [ "\$PREFIX" = "/data/data/com.termux/files/usr" ]; then
-    SUDO_CMD=""
-else
-    SUDO_CMD="sudo"
-fi
+SUDO_CMD="sudo"
 
 echo -e "\${GREEN}🔹 Desativando IPv6...\${NC}"
 \$SUDO_CMD sysctl -w net.ipv6.conf.all.disable_ipv6=1 2>/dev/null
@@ -113,20 +94,14 @@ EOF
 chmod +x tor-vpn-start.sh
 echo -e "${GREEN}✔ tor-vpn-start.sh criado!${NC}"
 
-# Criar script de desativar VPN híbrido
+# Criar script de desativar VPN
 echo -e "${YELLOW}🛠 Criando script tor-vpn-stop.sh...${NC}"
 cat > tor-vpn-stop.sh <<EOF
 #!/bin/bash
 
 RED='\\033[0;31m'
 NC='\\033[0m'
-
-# Detectar sudo
-if [ "\$PREFIX" = "/data/data/com.termux/files/usr" ]; then
-    SUDO_CMD=""
-else
-    SUDO_CMD="sudo"
-fi
+SUDO_CMD="sudo"
 
 echo -e "\${RED}🔹 Restaurando IPv6...\${NC}"
 \$SUDO_CMD sysctl -w net.ipv6.conf.all.disable_ipv6=0 2>/dev/null
