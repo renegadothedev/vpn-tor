@@ -2,12 +2,11 @@
 
 # 🛡️ Tor VPN Installer
 
-**Instalador simples e eficiente do Tor VPN para Linux e Termux (Android)**
+**Instalador simples e eficiente do Tor VPN para Linux**
 Transforme sua conexão em um **proxy transparente** com apenas alguns comandos.
 
 ![Shell Script](https://img.shields.io/badge/Shell_Script-121011?style=for-the-badge\&logo=gnu-bash\&logoColor=white)
 ![Linux](https://img.shields.io/badge/Linux-FCC624?style=for-the-badge\&logo=linux\&logoColor=black)
-![Android](https://img.shields.io/badge/Termux-000000?style=for-the-badge\&logo=android\&logoColor=white)
 ![License](https://img.shields.io/badge/License-MIT-blue?style=for-the-badge)
 
 </div>
@@ -19,18 +18,17 @@ Transforme sua conexão em um **proxy transparente** com apenas alguns comandos.
 * 🔍 **Verificação automática de dependências**: `tor`, `iptables`, `curl`, `nano`, `net-tools`.
 * 🌐 **Configuração transparente do Tor** (Transparent Proxy).
 * ⚡ **Scripts prontos para uso**:
-
   * `tor-vpn-start.sh` → Ativa o Tor VPN, desativa IPv6 e aplica regras de firewall.
   * `tor-vpn-stop.sh` → Desativa o Tor VPN e restaura IPv6.
-* 💻 **Compatibilidade**: Linux (Debian/Ubuntu) e Termux (Android).
+* 💻 **Compatibilidade**: Linux (Debian/Ubuntu).
 * 🎨 **Interface colorida** com mensagens claras e emojis.
 
 ---
 
 ## 📦 Pré-requisitos
 
-* Linux baseado em **Debian/Ubuntu** ou **Termux** no Android.
-* Permissões de **sudo** (Linux) ou pacote `pkg` (Termux).
+* Linux baseado em **Debian/Ubuntu**.
+* Permissões de **sudo**.
 * Conexão com a internet.
 
 ---
@@ -69,7 +67,6 @@ chmod +x tor-vpn-installer.sh
  ├── tor-vpn-installer.sh   # Instalador principal
  ├── tor-vpn-start.sh       # Script de ativação
  └── tor-vpn-stop.sh        # Script de desativação
-
 ```
 
 ---
