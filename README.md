@@ -83,5 +83,5 @@ O uso indevido pode violar leis locais.
 ---
 
 <div align="center">
-Feito com ❤️ por <a href="https://github.com/SEU-USUARIO">Seu Nome</a>
+Feito com ❤️ por <a href="https://github.com/">renegado</a>
 </div>
