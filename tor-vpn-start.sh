@@ -2,22 +2,14 @@
 
 GREEN='\033[0;32m'
 NC='\033[0m'
+SUDO_CMD="sudo"
 
 # Função para checar se comando existe
 command_exists() {
     command -v "$1" >/dev/null 2>&1
 }
 
-echo -e "${GREEN}🔹 Iniciando configuração Tor VPN híbrida...\033[0m"
-
-# Verifica se está no Termux
-if [ "$PREFIX" = "/data/data/com.termux/files/usr" ]; then
-    echo -e "${GREEN}⚡ Detectado Termux...\033[0m"
-    SUDO_CMD=""
-else
-    echo -e "${GREEN}⚡ Detectado Linux normal...\033[0m"
-    SUDO_CMD="sudo"
-fi
+echo -e "${GREEN}🔹 Iniciando configuração Tor VPN para Linux...\033[0m"
 
 # Desativar IPv6
 echo -e "${GREEN}🔹 Desativando IPv6...\033[0m"
