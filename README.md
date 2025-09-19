@@ -1,25 +1,81 @@
-# VPN Manager
+# 🔒 VPN Manager - Solução Completa de Gestão de VPN
 
-Uma ferramenta robusta para gestão de conexões VPN em ambientes Linux e Termux, desenvolvida por [renegadothedev](https://github.com/renegadothedev).
+[![GitHub](https://img.shields.io/badge/GitHub-renegadothedev-blue?logo=github)](https://github.com/renegadothedev)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Platform: Linux](https://img.shields.io/badge/Platform-Linux%20%7C%20Termux-green.svg)](https://ubuntu.com/)
+[![Shell: Bash](https://img.shields.io/badge/Shell-Bash4.0+-lightgrey.svg)](https://www.gnu.org/software/bash/)
 
-## 📋 Descrição
+## 📖 Índice
 
-O VPN Manager oferece uma interface intuitiva para controlar conexões VPN, proporcionando uma experiência simplificada para utilizadores que necessitam de gerir a sua conectividade de forma eficiente e segura.
+1. [📋 Visão Geral](#-visão-geral)
+2. [✨ Funcionalidades](#-funcionalidades)
+3. [🚀 Começar Rápido](#-começar-rápido)
+4. [📦 Requisitos do Sistema](#-requisitos-do-sistema)
+5. [🔧 Instalação Detalhada](#-instalação-detalhada)
+6. [🎮 Guia de Utilização](#-guia-de-utilização)
+7. [⚙️ Configuração Avançada](#-configuração-avançada)
+8. [🔍 Métodos de Conexão Suportados](#-métodos-de-conexão-suportados)
+9. [📊 Estrutura de Ficheiros](#-estrutura-de-ficheiros)
+10. [🐛 Resolução de Problemas](#-resolução-de-problemas)
+11. [🔒 Considerações de Segurança](#-considerações-de-segurança)
+12. [🤝 Contribuindo](#-contribuindo)
+13. [❓ Perguntas Frequentes](#-perguntas-frequentes)
+14. [📞 Suporte](#-suporte)
+15. [📄 Licença](#-licença)
+16. [👥 Autor](#-autor)
+
+## 📋 Visão Geral
+
+O **VPN Manager** é uma solução abrangente e altamente personalizável para gestão de conexões VPN em ambientes Linux e Termux. Desenvolvido com foco em simplicidade, segurança e eficiência, esta ferramenta elimina a complexidade tradicional associada à gestão manual de VPNs através de linha de comando.
+
+Com uma interface intuitiva baseada em menus, gestão automática de configurações, e suporte para múltiplos protocolos, o VPN Manager torna-se a ferramenta ideal tanto para utilizadores iniciantes como avançados que necessitam de uma gestão fiável e consistente das suas conexões VPN.
+
+---
 
 ## ✨ Funcionalidades
 
-- 🔒 **Gestão Segura** de múltiplos tipos de conexão VPN
-- 🌐 **Suporte Multiplataforma** (Linux desktop e Termux)
-- ⚡ **Ativação/Desativação Rápida** com verificação de estado
-- 📊 **Monitorização em Tempo Real** do estado da conexão
-- 📝 **Sistema de Logging** detalhado de atividades
-- 🔧 **Configuração Persistente** entre sessões
-- 🌍 **Verificação de IP Público** integrada
-- 🎯 **Interface Intuitiva** baseada em menu
+### 🔄 Gestão de Conexões
+- **Ativação/Desativação Instantânea** com verificação automática de estado
+- **Suporte Multiplataforma** completo para Linux desktop e ambiente Termux
+- **Reconexão Automática** em caso de falha de conexão
+- **Gestão de Múltiplos Perfis** com configuração persistente
 
-## 📦 Requisitos
+### 🎯 Interface de Utilizador
+- **Menu Interativo Intuitivo** com opções numeradas
+- **Feedback Visual Colorido** para fácil identificação de estados
+- **Logs Detalhados** com carimbo de data/hora
+- **Progresso em Tempo Real** durante operações
 
-### Para Linux:
+### 🔧 Configuração
+- **Configuração Guiada** na primeira execução
+- **Armazenamento Persistente** de definições entre sessões
+- **Suporte para Múltiplos Métodos** de conexão VPN
+- **Backup Automático** de configurações
+
+### 📊 Monitorização
+- **Verificação de Estado** em tempo real da conexão VPN
+- **Deteção Automática** de interfaces de rede
+- **Teste de Conectividade** integrado
+- **Visualização de IP Público** com múltiplos fornecedores
+
+### 🔒 Segurança
+- **Execução sem Privilégios Root** por padrão
+- **Gestão Segura** de processos
+- **Logs Locais** sem transmissão de dados
+- **Validação Rigorosa** de configurações
+
+---
+
+## 🚀 Começar Rápido
+
+### Instalação em 3 Passos:
+
 ```bash
-sudo apt update
-sudo apt install openvpn network-manager-openvpn curl
+# 1. Transferir o script
+curl -L -o vpn-manager https://raw.githubusercontent.com/renegadothedev/vpn-manager/main/vpn-manager
+
+# 2. Tornar executável
+chmod +x vpn-manager
+
+# 3. Executar
+./vpn-manager
