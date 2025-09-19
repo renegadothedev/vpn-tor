@@ -74,9 +74,6 @@ Com uma interface intuitiva baseada em menus, gestão automática de configuraç
 # 1. Transferir o script
 git clone https://github.com/renegadothedev/vpn-tor/tree/main
 
-# 2. Entrar no diretorio
-cd vpn-tor
-
 # 3. Tornar executável
 chmod +x vpn-manager
 
