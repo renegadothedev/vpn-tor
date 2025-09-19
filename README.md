@@ -68,14 +68,17 @@ Com uma interface intuitiva baseada em menus, gestão automática de configuraç
 
 ## 🚀 Começar Rápido
 
-### Instalação em 3 Passos:
+### Instalação em 4 Passos:
 
 ```bash
 # 1. Transferir o script
-curl -L -o vpn-manager https://raw.githubusercontent.com/renegadothedev/vpn-manager/main/vpn-manager
+git clone https://github.com/renegadothedev/vpn-tor/tree/main
 
-# 2. Tornar executável
+# 2. Entrar no diretorio
+cd vpn-tor
+
+# 3. Tornar executável
 chmod +x vpn-manager
 
-# 3. Executar
+# 4. Executar
 ./vpn-manager
