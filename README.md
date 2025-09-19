@@ -1,84 +1,25 @@
-<div align="center">
+# VPN Manager
 
-# 🛡️ Tor VPN Installer
+Uma ferramenta robusta para gestão de conexões VPN em ambientes Linux e Termux, desenvolvida por [renegadothedev](https://github.com/renegadothedev).
 
-**Instalador simples e eficiente do Tor VPN para Linux**
-Transforme sua conexão em um **proxy transparente** com apenas alguns comandos.
+## 📋 Descrição
 
-![Shell Script](https://img.shields.io/badge/Shell_Script-121011?style=for-the-badge\&logo=gnu-bash\&logoColor=white)
-![Linux](https://img.shields.io/badge/Linux-FCC624?style=for-the-badge\&logo=linux\&logoColor=black)
-![License](https://img.shields.io/badge/License-MIT-blue?style=for-the-badge)
+O VPN Manager oferece uma interface intuitiva para controlar conexões VPN, proporcionando uma experiência simplificada para utilizadores que necessitam de gerir a sua conectividade de forma eficiente e segura.
 
-</div>
+## ✨ Funcionalidades
 
----
+- 🔒 **Gestão Segura** de múltiplos tipos de conexão VPN
+- 🌐 **Suporte Multiplataforma** (Linux desktop e Termux)
+- ⚡ **Ativação/Desativação Rápida** com verificação de estado
+- 📊 **Monitorização em Tempo Real** do estado da conexão
+- 📝 **Sistema de Logging** detalhado de atividades
+- 🔧 **Configuração Persistente** entre sessões
+- 🌍 **Verificação de IP Público** integrada
+- 🎯 **Interface Intuitiva** baseada em menu
 
-## ✨ Recursos
+## 📦 Requisitos
 
-* 🔍 **Verificação automática de dependências**: `tor`, `iptables`, `curl`, `nano`, `net-tools`.
-* 🌐 **Configuração transparente do Tor** (Transparent Proxy).
-* ⚡ **Scripts prontos para uso**:
-  * `tor-vpn-start.sh` → Ativa o Tor VPN, desativa IPv6 e aplica regras de firewall.
-  * `tor-vpn-stop.sh` → Desativa o Tor VPN e restaura IPv6.
-* 💻 **Compatibilidade**: Linux (Debian/Ubuntu).
-* 🎨 **Interface colorida** com mensagens claras e emojis.
-
----
-
-## 📦 Pré-requisitos
-
-* Linux baseado em **Debian/Ubuntu**.
-* Permissões de **sudo**.
-* Conexão com a internet.
-
----
-
-## 🚀 Instalação
-
+### Para Linux:
 ```bash
-# 1. Baixe o instalador
-git clone https://github.com/joaobarbosa0m/vpn-tor
-
-# 2. Dê permissão de execução
-chmod +x tor-vpn-installer.sh
-
-# 3. Execute o script
-./tor-vpn-installer.sh
-```
-
----
-
-## 📚 Uso Rápido
-
-```bash
-# Ativar Tor VPN
-./tor-vpn-start.sh
-
-# Desativar Tor VPN
-./tor-vpn-stop.sh
-```
-
----
-
-## 📂 Estrutura do Projeto
-
-```
-📦 vpn-tor
- ├── tor-vpn-installer.sh   # Instalador principal
- ├── tor-vpn-start.sh       # Script de ativação
- └── tor-vpn-stop.sh        # Script de desativação
-```
-
----
-
-## ⚠️ Aviso Legal
-
-Este projeto é fornecido **apenas para fins educacionais**.
-O uso indevido pode violar leis locais.
-**Você é responsável por como utilizar este software.**
-
----
-
-<div align="center">
-  Feito por <a href="https://github.com/joaobarbosa0m">Renegado</a>
-</div>
+sudo apt update
+sudo apt install openvpn network-manager-openvpn curl
