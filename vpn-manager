@@ -1,14 +1,293 @@
 #!/bin/bash
+
+# VPN Manager by https://github.com/renegadothedev
+# Gerencia conexões VPN de forma eficiente no Linux e Termux
+
+# Cores para output
 RED='\033[0;31m'
-NC='\033[0m'
-SUDO_CMD="sudo"
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
 
-echo -e "${RED}🔹 Restaurando IPv6...\033[0m"
-$SUDO_CMD sysctl -w net.ipv6.conf.all.disable_ipv6=0 2>/dev/null
-$SUDO_CMD sysctl -w net.ipv6.conf.default.disable_ipv6=0 2>/dev/null
+# Configurações
+CONFIG_DIR="$HOME/.vpn-manager"
+CONFIG_FILE="$CONFIG_DIR/settings"
+LOG_FILE="$CONFIG_DIR/activity.log"
 
-echo -e "${RED}🔹 Limpando regras de firewall...\033[0m"
-$SUDO_CMD iptables -F 2>/dev/null
-$SUDO_CMD iptables -t nat -F 2>/dev/null
+# Verificar ambiente
+check_environment() {
+    if [[ -d "/data/data/com.termux/files/usr" ]]; then
+        echo "termux"
+    else
+        echo "linux"
+    fi
+}
 
-echo -e "${RED}❌ Tor VPN desativada! Tráfego voltou ao normal.\033[0m"
+# Verificar requisitos
+verify_requirements() {
+    local missing=()
+    local env=$(check_environment)
+    
+    if [[ "$env" == "termux" ]]; then
+        if ! command -v openvpn &> /dev/null; then
+            missing+=("openvpn")
+        fi
+    else
+        if ! command -v openvpn &> /dev/null && ! command -v nmcli &> /dev/null; then
+            missing+=("openvpn ou network-manager")
+        fi
+    fi
+    
+    if [[ ${#missing[@]} -gt 0 ]]; then
+        echo -e "${RED}Requisitos em falta: ${missing[*]}${NC}"
+        if [[ "$env" == "termux" ]]; then
+            echo "Instale com: pkg install openvpn"
+        else
+            echo "Instale com: sudo apt install openvpn network-manager-openvpn"
+        fi
+        return 1
+    fi
+    return 0
+}
+
+# Inicializar configuração
+setup_config() {
+    mkdir -p "$CONFIG_DIR"
+    touch "$CONFIG_FILE" "$LOG_FILE"
+    
+    if [[ ! -s "$CONFIG_FILE" ]]; then
+        cat > "$CONFIG_FILE" << EOF
+VPN_METHOD="openvpn"
+CONFIG_PATH=""
+CONNECTION_NAME=""
+EOF
+    fi
+}
+
+# Carregar configurações
+load_settings() {
+    if [[ -f "$CONFIG_FILE" ]]; then
+        source "$CONFIG_FILE"
+    fi
+}
+
+# Salvar configurações
+save_settings() {
+    cat > "$CONFIG_FILE" << EOF
+VPN_METHOD="$VPN_METHOD"
+CONFIG_PATH="$CONFIG_PATH"
+CONNECTION_NAME="$CONNECTION_NAME"
+EOF
+}
+
+# Registrar atividade
+log_activity() {
+    local message="$1"
+    echo "$(date '+%Y-%m-%d %H:%M:%S') - $message" >> "$LOG_FILE"
+    echo -e "${BLUE}[*]${NC} $message"
+}
+
+# Configurar conexão
+setup_connection() {
+    echo -e "${YELLOW}Configuração de Conexão${NC}"
+    
+    echo -e "${GREEN}Selecionar método:${NC}"
+    echo "1) OpenVPN (ficheiro .ovpn)"
+    echo "2) Network Manager"
+    read -p "Opção (1/2): " option
+    
+    case $option in
+        1) VPN_METHOD="openvpn" ;;
+        2) VPN_METHOD="nmcli" ;;
+        *) echo -e "${RED}Opção inválida${NC}"; return 1 ;;
+    esac
+    
+    if [[ "$VPN_METHOD" == "openvpn" ]]; then
+        read -p "Caminho do ficheiro .ovpn: " CONFIG_PATH
+        if [[ ! -f "$CONFIG_PATH" ]]; then
+            echo -e "${RED}Ficheiro não encontrado${NC}"
+            return 1
+        fi
+    else
+        echo -e "${YELLOW}Conexões disponíveis:${NC}"
+        nmcli connection show | grep -E "(vpn|vpn|wireguard)" || nmcli connection show
+        read -p "Nome da conexão: " CONNECTION_NAME
+    fi
+    
+    save_settings
+    echo -e "${GREEN}Configuração guardada${NC}"
+}
+
+# Verificar estado
+check_connection() {
+    local env=$(check_environment)
+    
+    if [[ "$env" == "termux" ]]; then
+        if pgrep -x "openvpn" > /dev/null; then
+            echo -e "${GREEN}Conexão ativa${NC}"
+            return 0
+        else
+            echo -e "${RED}Conexão inativa${NC}"
+            return 1
+        fi
+    else
+        if ip addr show | grep -q "tun0" || ip addr show | grep -q "ppp0"; then
+            echo -e "${GREEN}Conexão ativa${NC}"
+            return 0
+        else
+            echo -e "${RED}Conexão inativa${NC}"
+            return 1
+        fi
+    fi
+}
+
+# Estabelecer conexão
+establish_connection() {
+    log_activity "Iniciando conexão..."
+    
+    if check_connection; then
+        echo -e "${YELLOW}Conexão já estabelecida${NC}"
+        return 0
+    fi
+    
+    load_settings
+    
+    if [[ "$VPN_METHOD" == "openvpn" ]]; then
+        if [[ ! -f "$CONFIG_PATH" ]]; then
+            echo -e "${RED}Ficheiro de configuração em falta${NC}"
+            setup_connection
+            return 1
+        fi
+        
+        echo -e "${GREEN}A estabelecer conexão OpenVPN...${NC}"
+        local env=$(check_environment)
+        if [[ "$env" == "termux" ]]; then
+            sudo openvpn --config "$CONFIG_PATH" --daemon
+        else
+            sudo openvpn --config "$CONFIG_PATH" --daemon
+        fi
+        
+    elif [[ "$VPN_METHOD" == "nmcli" ]]; then
+        if [[ -z "$CONNECTION_NAME" ]]; then
+            echo -e "${RED}Nome de conexão em falta${NC}"
+            setup_connection
+            return 1
+        fi
+        
+        echo -e "${GREEN}A ativar via Network Manager...${NC}"
+        nmcli connection up "$CONNECTION_NAME"
+    fi
+    
+    sleep 3
+    if check_connection; then
+        log_activity "Conexão estabelecida"
+        echo -e "${GREEN}Conexão bem-sucedida${NC}"
+        return 0
+    else
+        log_activity "Falha na conexão"
+        echo -e "${RED}Falha ao estabelecer conexão${NC}"
+        return 1
+    fi
+}
+
+# Terminar conexão
+terminate_connection() {
+    log_activity "A terminar conexão..."
+    
+    if ! check_connection; then
+        echo -e "${YELLOW}Conexão já inativa${NC}"
+        return 0
+    fi
+    
+    load_settings
+    
+    if [[ "$VPN_METHOD" == "openvpn" ]]; then
+        echo -e "${GREEN}A terminar OpenVPN...${NC}"
+        sudo pkill -f openvpn
+        
+    elif [[ "$VPN_METHOD" == "nmcli" ]]; then
+        echo -e "${GREEN}A desativar via Network Manager...${NC}"
+        nmcli connection down "$CONNECTION_NAME"
+    fi
+    
+    sleep 2
+    if ! check_connection; then
+        log_activity "Conexão terminada"
+        echo -e "${GREEN}Conexão terminada${NC}"
+        return 0
+    else
+        log_activity "Falha ao terminar conexão"
+        echo -e "${RED}Falha ao terminar conexão${NC}"
+        return 1
+    fi
+}
+
+# Mostrar IP público
+show_public_ip() {
+    echo -e "${YELLOW}IP Público:${NC}"
+    curl -s https://ipinfo.io/ip || curl -s https://api.ipify.org
+    echo
+}
+
+# Mostrar histórico
+show_history() {
+    if [[ -s "$LOG_FILE" ]]; then
+        less "$LOG_FILE"
+    else
+        echo -e "${YELLOW}Sem registos de atividade${NC}"
+    fi
+}
+
+# Interface principal
+show_interface() {
+    echo -e "\n${BLUE}VPN Manager by https://github.com/renegadothedev${NC}"
+    echo "1) Estabelecer conexão"
+    echo "2) Terminar conexão"
+    echo "3) Verificar estado"
+    echo "4) Mostrar IP público"
+    echo "5) Configurar conexão"
+    echo "6) Ver histórico"
+    echo "7) Sair"
+    echo -n "Selecionar opção: "
+}
+
+# Execução principal
+main() {
+    if [[ $EUID -eq 0 ]]; then
+        echo -e "${RED}Execução como root não permitida${NC}"
+        exit 1
+    fi
+    
+    if ! verify_requirements; then
+        exit 1
+    fi
+    
+    setup_config
+    load_settings
+    
+    while true; do
+        show_interface
+        read option
+        
+        case $option in
+            1) establish_connection ;;
+            2) terminate_connection ;;
+            3) check_connection ;;
+            4) show_public_ip ;;
+            5) setup_connection ;;
+            6) show_history ;;
+            7) 
+                echo -e "${GREEN}A terminar...${NC}"
+                exit 0
+                ;;
+            *) echo -e "${RED}Opção inválida${NC}" ;;
+        esac
+        
+        echo -e "\nEnter para continuar..."
+        read
+    done
+}
+
+# Iniciar
+main "$@"
