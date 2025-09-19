@@ -221,7 +221,7 @@ echo "Sistema compatível: $([ $? -eq 0 ] && echo '✅ Sim' || echo '❌ Não')"
 
 ## 👥 Autor
 
-**Desenvolvido com ❤️ por [renegadothedev](https://github.com/renegadothedev)**
+**Desenvolvido por [renegadothedev](https://github.com/renegadothedev)**
 
 ### 📞 Contacto
 - **GitHub**: [github.com/renegadothedev](https://github.com/renegadothedev)
@@ -237,7 +237,7 @@ echo "Sistema compatível: $([ $? -eq 0 ] && echo '✅ Sim' || echo '❌ Não')"
 
 ## 🔄 Changelog
 
-### v1.0.0 (2024-01-15)
+### v1.0.0 (2025-18-09)
 - ✅ Lançamento inicial
 - ✅ Suporte para OpenVPN e Network Manager
 - ✅ Interface interativa baseada em menu
