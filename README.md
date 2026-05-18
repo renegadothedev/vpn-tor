@@ -1,44 +1,62 @@
 # VPN Manager
 
-VPN Manager is an interactive Bash tool for managing VPN connections on Linux and Termux. It supports OpenVPN configuration files and NetworkManager connections, keeps a local activity log, validates settings before connecting, and includes repair and diagnostics actions for common setup problems.
+VPN Manager is an interactive Bash tool for VPN connections on Linux and
+Termux. It organizes OpenVPN profiles (`.ovpn`) and NetworkManager connections
+(`nmcli`) in a simple menu with diagnostics, history, local repair and
+dependency validation.
 
-## Features
+The project also recognizes Windows, Git Bash, MSYS2, Cygwin, WSL and macOS.
+Those systems receive an explanatory screen and the script stops safely because
+real VPN management depends on Linux networking tools and permissions.
 
-- OpenVPN support through `.ovpn` files.
-- NetworkManager support through `nmcli`.
-- Linux and Termux environment detection.
-- Guided connection setup.
-- Automatic local configuration repair.
-- Optional dependency installation when a supported package manager is available.
-- Connection retries with configurable timeout.
-- Safer settings loading without executing the settings file.
-- Activity log and separate OpenVPN log.
-- Diagnostics screen with environment, profile, and status details.
-- Public IP lookup with fallback provider.
+## What It Does
 
-## Requirements
+- Connects and disconnects VPNs through OpenVPN.
+- Connects and disconnects VPNs through NetworkManager.
+- Detects Linux, Termux, Windows, WSL, macOS and unknown systems.
+- Stops on Windows with a clear message: Windows was not designed to run this
+  script directly.
+- Checks VPN status through processes, active connections and `tun`, `tap`,
+  `ppp` and `wg` interfaces.
+- Looks up the public IP address with a fallback provider.
+- Saves local settings safely without executing the settings file as shell code.
+- Keeps an activity history.
+- Keeps a separate OpenVPN log.
+- Repairs local files and permissions.
+- Offers automatic dependency installation when a supported package manager is
+  available.
+- Includes a large, objective quick guide inside the menu.
 
-VPN Manager needs Bash and the tools required by your selected VPN method.
+## Supported Systems
 
-Common dependencies:
+| System | Status | Note |
+| --- | --- | --- |
+| Linux | Supported | Main project environment. |
+| Termux | Supported | Uses `pkg` when available. |
+| Windows | Recognized | Shows a warning and stops safely. |
+| Git Bash / MSYS2 / Cygwin | Recognized | Does not control the real Windows VPN. |
+| WSL | Recognized | Useful for reading/testing, not for the main Windows VPN. |
+| macOS | Recognized | Not supported yet. |
 
-- `openvpn` for OpenVPN profiles.
-- `nmcli` for NetworkManager profiles.
-- `curl` for public IP lookup.
-- `ip` for Linux interface checks.
-- `pgrep` for process checks.
-- `sudo` on Linux when privileged VPN actions are required.
+## Why Windows Is Blocked
 
-Supported package managers for automatic dependency installation:
+VPN Manager uses Linux tools:
 
-- `apt-get`
-- `dnf`
-- `yum`
-- `pacman`
-- `zypper`
-- `pkg` on Termux
+- `openvpn` to start `.ovpn` profiles.
+- `nmcli` to control NetworkManager connections.
+- `ip` to inspect network interfaces.
+- `pgrep` and `pkill` to locate processes.
+- `sudo` or root for privileged operations.
+
+On native Windows, these commands do not manage the system network stack. The
+script may open in some terminals, but that does not mean it can control a
+Windows VPN. That is why it detects the system and explains the reason.
+
+For Windows, use your VPN provider's official client.
 
 ## Installation
+
+Clone or download the repository and make the script executable:
 
 ```bash
 chmod +x vpn-manager
@@ -52,82 +70,120 @@ sudo install -m 755 vpn-manager /usr/local/bin/vpn-manager
 vpn-manager
 ```
 
-## Usage
+On Windows, open `vpn-manager.cmd` to see the compatibility message.
 
-Run the script and choose an action from the menu:
+## Quick Commands
 
 ```bash
 ./vpn-manager
+./vpn-manager --help
+./vpn-manager --version
+./vpn-manager --check-platform
 ```
 
-Menu options:
+## Main Menu
 
-1. Connect
-2. Disconnect
-3. Check status
-4. Show public IP
-5. Configure connection
-6. View history
-7. Diagnostics
-8. Repair installation
-9. Exit
+```text
+1) Connect
+2) Disconnect
+3) Status
+4) Show public IP
+5) Configure connection
+6) History
+7) Diagnostics
+8) Repair installation
+9) Quick guide
+0) Exit
+```
 
-## First Setup
+## First Use
 
-Choose `Configure connection`, then select one of the supported methods:
+1. Run `./vpn-manager`.
+2. Open `Configure connection`.
+3. Choose a method:
+   - `OpenVPN (.ovpn)` for a configuration file.
+   - `NetworkManager (nmcli)` for an existing connection.
+4. Enter the `.ovpn` file path or the exact connection name.
+5. Adjust retries and timeout if needed.
+6. Return to the menu and choose `Connect`.
+7. Use `Status` or `Diagnostics` to confirm the result.
 
-- `OpenVPN (.ovpn file)`: provide the full path to your `.ovpn` file.
-- `NetworkManager`: choose an existing NetworkManager connection name.
+## Dependencies
 
-You can also configure:
+Common dependencies:
 
-- Connection retry count.
-- Connection timeout in seconds.
+- `bash`
+- `openvpn`
+- `curl`
+- `pgrep`
+- `ip` on Linux
+- `nmcli` when using NetworkManager
+- `sudo` when the action requires administrative privileges
 
-Settings are saved in:
+Recognized package managers:
+
+- `apt-get`
+- `dnf`
+- `yum`
+- `pacman`
+- `zypper`
+- `pkg` on Termux
+
+## Local Files
+
+VPN Manager stores everything in the user's directory:
 
 ```text
 ~/.vpn-manager/settings
-```
-
-## Logs
-
-VPN Manager stores logs locally:
-
-```text
 ~/.vpn-manager/activity.log
 ~/.vpn-manager/openvpn.log
+~/.vpn-manager/openvpn.pid
 ```
 
-Use `View history` for recent activity, or `Diagnostics` to see the active profile and environment details.
+If your `HOME` directory cannot be written to, choose another directory:
 
-## Repair Behavior
+```bash
+VPN_MANAGER_CONFIG_DIR=/tmp/vpn-manager ./vpn-manager
+```
 
-The `Repair installation` option:
+Local permissions are adjusted when possible:
 
-- Recreates missing local configuration files.
-- Fixes local file permissions where possible.
-- Checks required commands for the selected VPN method.
-- Offers automatic dependency installation when supported.
+- Directory: `700`
+- Sensitive files: `600`
 
-The script can recover from common local problems, but it cannot guarantee success when the failure is outside its control, such as invalid VPN credentials, blocked networks, missing kernel VPN support, broken provider configuration, or denied administrator permissions.
+## Repair Installation
 
-## Security Notes
+The `Repair installation` option does the following:
 
-- Do not run the script as root unless your environment specifically requires it.
-- On Linux, privileged actions are executed through `sudo` when needed.
-- The settings file is parsed safely and is not sourced as executable shell code.
-- Logs remain local under `~/.vpn-manager`.
+- Recreates the local directory if missing.
+- Recreates settings and log files.
+- Adjusts permissions.
+- Checks required commands.
+- Offers to install missing dependencies when the package manager is supported.
+
+It helps with local problems, but it cannot fix invalid credentials, provider
+blocks, blocked networks, broken `.ovpn` files or missing administrative
+permissions.
+
+## Security
+
+- Do not run as root unless your environment requires it.
+- On Linux, privileged actions use `sudo` when possible.
+- The `settings` file is read as data, not shell code.
+- Logs stay inside `~/.vpn-manager`.
+- File paths and connection names are validated before connection attempts.
 
 ## Troubleshooting
 
-If connection fails:
+If the VPN does not connect:
 
 1. Run `Diagnostics`.
 2. Run `Repair installation`.
-3. Confirm that the `.ovpn` file or NetworkManager profile is valid.
-4. Check `~/.vpn-manager/openvpn.log` for provider or authentication errors.
-5. Confirm that your user can run privileged VPN commands through `sudo`.
+3. Confirm that the `.ovpn` file exists and is readable.
+4. Confirm that the `nmcli` connection name is correct.
+5. Check `~/.vpn-manager/openvpn.log`.
+6. Verify that your user can run commands through `sudo`.
+7. Test the VPN with the provider's official client to rule out external issues.
 
 ## License
 

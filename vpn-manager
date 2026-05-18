@@ -1,16 +1,15 @@
 #!/usr/bin/env bash
 
 # VPN Manager by https://github.com/renegadothedev
-# Manages OpenVPN and NetworkManager VPN connections on Linux and Termux.
-
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m'
+# Interactive VPN manager for Linux and Termux.
+# Windows, WSL and macOS are detected and receive a clear support notice.
 
 APP_NAME="VPN Manager"
-CONFIG_DIR="${HOME}/.vpn-manager"
+APP_VERSION="2.0.0"
+APP_AUTHOR_URL="https://github.com/renegadothedev"
+APP_DESCRIPTION="Interactive VPN manager for OpenVPN and NetworkManager."
+
+CONFIG_DIR="${VPN_MANAGER_CONFIG_DIR:-${HOME:-.}/.vpn-manager}"
 CONFIG_FILE="${CONFIG_DIR}/settings"
 LOG_FILE="${CONFIG_DIR}/activity.log"
 OPENVPN_LOG_FILE="${CONFIG_DIR}/openvpn.log"
@@ -22,39 +21,315 @@ CONNECTION_NAME=""
 MAX_RETRIES=3
 CONNECT_TIMEOUT=20
 
+if [[ -t 1 && -z "${NO_COLOR:-}" ]]; then
+    RED='\033[0;31m'
+    GREEN='\033[0;32m'
+    YELLOW='\033[1;33m'
+    BLUE='\033[0;34m'
+    BOLD='\033[1m'
+    DIM='\033[2m'
+    NC='\033[0m'
+else
+    RED=''
+    GREEN=''
+    YELLOW=''
+    BLUE=''
+    BOLD=''
+    DIM=''
+    NC=''
+fi
+
+ui_width() {
+    local width="${COLUMNS:-76}"
+
+    if ! [[ "$width" =~ ^[0-9]+$ ]]; then
+        width=76
+    fi
+
+    if [[ "$width" -gt 88 ]]; then
+        width=88
+    elif [[ "$width" -lt 62 ]]; then
+        width=62
+    fi
+
+    printf '%s' "$width"
+}
+
+print_line() {
+    local width
+    width="$(ui_width)"
+    printf '%*s\n' "$width" '' | tr ' ' '-'
+}
+
+print_banner() {
+    echo
+    print_line
+    printf '%b%s%b %s\n' "$BOLD" "$APP_NAME" "$NC" "$APP_VERSION"
+    printf '%s\n' "$APP_DESCRIPTION"
+    printf '%s\n' "Author: ${APP_AUTHOR_URL}"
+    print_line
+}
+
+print_section() {
+    echo
+    printf '%b%s%b\n' "$BOLD" "$1" "$NC"
+    print_line
+}
+
+print_key_value() {
+    printf '  %-28s %s\n' "$1:" "$2"
+}
+
 print_info() {
-    echo -e "${BLUE}[*]${NC} $*"
+    printf '%b[*]%b %s\n' "$BLUE" "$NC" "$*"
 }
 
 print_success() {
-    echo -e "${GREEN}[OK]${NC} $*"
+    printf '%b[OK]%b %s\n' "$GREEN" "$NC" "$*"
 }
 
 print_warning() {
-    echo -e "${YELLOW}[!]${NC} $*"
+    printf '%b[!]%b %s\n' "$YELLOW" "$NC" "$*"
 }
 
 print_error() {
-    echo -e "${RED}[ERROR]${NC} $*"
-}
-
-log_activity() {
-    local message="$1"
-    mkdir -p "$CONFIG_DIR"
-    printf '%s - %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$message" >> "$LOG_FILE"
-    print_info "$message"
+    printf '%b[ERROR]%b %s\n' "$RED" "$NC" "$*"
 }
 
 command_exists() {
     command -v "$1" >/dev/null 2>&1
 }
 
-detect_environment() {
+detect_wsl() {
+    if [[ -r "/proc/sys/kernel/osrelease" ]] && grep -qiE 'microsoft|wsl' "/proc/sys/kernel/osrelease" 2>/dev/null; then
+        return 0
+    fi
+
+    if [[ -r "/proc/version" ]] && grep -qi 'microsoft' "/proc/version" 2>/dev/null; then
+        return 0
+    fi
+
+    return 1
+}
+
+detect_platform() {
+    local kernel
+
     if [[ -d "/data/data/com.termux/files/usr" ]]; then
         echo "termux"
-    else
-        echo "linux"
+        return 0
     fi
+
+    if command_exists uname; then
+        kernel="$(uname -s 2>/dev/null || printf '%s' "${OSTYPE:-unknown}")"
+    else
+        kernel="${OSTYPE:-unknown}"
+    fi
+
+    case "$kernel" in
+        Linux*)
+            if detect_wsl; then
+                echo "wsl"
+            else
+                echo "linux"
+            fi
+            ;;
+        Darwin*)
+            echo "macos"
+            ;;
+        CYGWIN*|MINGW*|MSYS*)
+            echo "windows"
+            ;;
+        *)
+            if [[ "${OS:-}" == "Windows_NT" ]]; then
+                echo "windows"
+            else
+                echo "unknown"
+            fi
+            ;;
+    esac
+}
+
+detect_environment() {
+    detect_platform
+}
+
+platform_label() {
+    case "$1" in
+        linux) echo "Linux" ;;
+        termux) echo "Termux (Android)" ;;
+        windows) echo "Windows" ;;
+        wsl) echo "Windows Subsystem for Linux (WSL)" ;;
+        macos) echo "macOS" ;;
+        *) echo "Unknown system" ;;
+    esac
+}
+
+platform_is_supported() {
+    case "$(detect_platform)" in
+        linux|termux) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+show_windows_notice() {
+    local platform="$1"
+
+    print_banner
+    print_warning "Detected system: $(platform_label "$platform")"
+    cat <<'EOF'
+
+Windows was not designed to run this script directly.
+
+This manager uses Linux tools and behavior, such as:
+  - openvpn to start .ovpn profiles
+  - nmcli for NetworkManager connections
+  - ip to detect tun, tap, ppp and wg interfaces
+  - pgrep/pkill to find and stop processes
+  - sudo/root for privileged network operations
+
+On native Windows, these commands do not control the system network stack.
+Even in Git Bash, MSYS2 or Cygwin, the terminal may look Unix-like, but the
+real VPN is still managed by Windows.
+
+Correct usage:
+  1. Use a real Linux distribution, such as Debian, Ubuntu, Fedora or Arch.
+  2. Use Termux on Android when you need a portable environment.
+  3. Use your VPN provider's official client on Windows.
+  4. In WSL, treat this project as read/test only, not as the main Windows VPN.
+
+Summary: the script ran, recognized the system and stopped safely.
+EOF
+}
+
+show_unsupported_notice() {
+    local platform="$1"
+
+    print_banner
+    print_warning "Detected system: $(platform_label "$platform")"
+    cat <<'EOF'
+
+This operating system is not supported yet.
+
+VPN Manager was built for Linux and Termux because it depends on network
+commands, administrative permissions and VPN tools common in those environments.
+
+Use one of these options:
+  - Linux with OpenVPN or NetworkManager
+  - Termux with OpenVPN
+  - A native VPN client for your operating system
+EOF
+}
+
+ensure_supported_platform() {
+    local platform
+    platform="$(detect_platform)"
+
+    case "$platform" in
+        linux|termux)
+            return 0
+            ;;
+        windows|wsl)
+            show_windows_notice "$platform"
+            exit 0
+            ;;
+        *)
+            show_unsupported_notice "$platform"
+            exit 1
+            ;;
+    esac
+}
+
+show_help() {
+    cat <<EOF
+${APP_NAME} ${APP_VERSION}
+${APP_DESCRIPTION}
+
+Usage:
+  ./vpn-manager
+  ./vpn-manager --help
+  ./vpn-manager --version
+  ./vpn-manager --check-platform
+
+Supported systems:
+  - Linux
+  - Termux on Android
+
+Recognized systems that stop with an explanation:
+  - Windows
+  - Git Bash, MSYS2 and Cygwin
+  - WSL
+  - macOS
+
+Recommended flow:
+  1. Run ./vpn-manager.
+  2. Open "Configure connection".
+  3. Choose OpenVPN or NetworkManager.
+  4. Enter the .ovpn file path or the connection name.
+  5. Use "Connect", then "Status" to validate it.
+
+Local files:
+  Settings:     ${CONFIG_FILE}
+  History:      ${LOG_FILE}
+  OpenVPN log:  ${OPENVPN_LOG_FILE}
+
+Security:
+  - The settings file is not executed as shell code.
+  - Privileged actions use sudo on Linux when needed.
+  - Logs stay inside the user's local directory.
+EOF
+}
+
+show_platform_report() {
+    local platform
+    platform="$(detect_platform)"
+
+    print_banner
+    print_key_value "Detected system" "$(platform_label "$platform")"
+
+    if platform_is_supported; then
+        print_key_value "Supported" "yes"
+    else
+        print_key_value "Supported" "no"
+    fi
+}
+
+handle_arguments() {
+    if [[ "$#" -eq 0 ]]; then
+        return 0
+    fi
+
+    case "$1" in
+        -h|--help)
+            show_help
+            exit 0
+            ;;
+        -v|--version)
+            printf '%s %s\n' "$APP_NAME" "$APP_VERSION"
+            exit 0
+            ;;
+        --check-platform)
+            show_platform_report
+            exit 0
+            ;;
+        *)
+            print_error "Unknown option: $1"
+            printf 'Use: ./vpn-manager --help\n'
+            exit 2
+            ;;
+    esac
+}
+
+log_activity() {
+    local message="$1"
+
+    if mkdir -p "$CONFIG_DIR" 2>/dev/null; then
+        printf '%s - %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$message" >> "$LOG_FILE" 2>/dev/null || true
+    else
+        print_warning "Could not write history to: $CONFIG_DIR"
+    fi
+
+    print_info "$message"
 }
 
 run_privileged() {
@@ -142,18 +417,33 @@ prompt_yes_no() {
     local answer
 
     read -r -p "$prompt [y/N]: " answer
-    [[ "$answer" == "y" || "$answer" == "Y" || "$answer" == "yes" || "$answer" == "YES" ]]
+    case "$answer" in
+        y|Y|yes|YES) return 0 ;;
+        *) return 1 ;;
+    esac
 }
 
 repair_config_permissions() {
-    mkdir -p "$CONFIG_DIR"
-    touch "$CONFIG_FILE" "$LOG_FILE" "$OPENVPN_LOG_FILE"
+    if ! mkdir -p "$CONFIG_DIR" 2>/dev/null; then
+        print_error "Could not create the local directory: $CONFIG_DIR"
+        print_warning "Use VPN_MANAGER_CONFIG_DIR=/writable/path to choose another location."
+        return 1
+    fi
+
+    if ! touch "$CONFIG_FILE" "$LOG_FILE" "$OPENVPN_LOG_FILE" 2>/dev/null; then
+        print_error "Could not create local files in: $CONFIG_DIR"
+        print_warning "Check write permissions or use VPN_MANAGER_CONFIG_DIR."
+        return 1
+    fi
+
     chmod 700 "$CONFIG_DIR" 2>/dev/null || true
     chmod 600 "$CONFIG_FILE" "$LOG_FILE" "$OPENVPN_LOG_FILE" 2>/dev/null || true
+    return 0
 }
 
 escape_config_value() {
     local value="$1"
+
     value="${value//\\/\\\\}"
     value="${value//\"/\\\"}"
     printf '%s' "$value"
@@ -161,6 +451,7 @@ escape_config_value() {
 
 unescape_config_value() {
     local value="$1"
+
     value="${value%\"}"
     value="${value#\"}"
     value="${value//\\\"/\"}"
@@ -169,14 +460,19 @@ unescape_config_value() {
 }
 
 save_settings() {
-    repair_config_permissions
+    repair_config_permissions || return 1
+
     {
         printf 'VPN_METHOD="%s"\n' "$(escape_config_value "$VPN_METHOD")"
         printf 'CONFIG_PATH="%s"\n' "$(escape_config_value "$CONFIG_PATH")"
         printf 'CONNECTION_NAME="%s"\n' "$(escape_config_value "$CONNECTION_NAME")"
         printf 'MAX_RETRIES="%s"\n' "$(escape_config_value "$MAX_RETRIES")"
         printf 'CONNECT_TIMEOUT="%s"\n' "$(escape_config_value "$CONNECT_TIMEOUT")"
-    } > "$CONFIG_FILE"
+    } > "$CONFIG_FILE" || {
+        print_error "Could not save settings to: $CONFIG_FILE"
+        return 1
+    }
+
     chmod 600 "$CONFIG_FILE" 2>/dev/null || true
 }
 
@@ -194,11 +490,11 @@ load_settings() {
     local raw_value
     local value
 
-    repair_config_permissions
+    repair_config_permissions || return 1
 
     if [[ ! -s "$CONFIG_FILE" ]]; then
         reset_settings
-        return 0
+        return $?
     fi
 
     while IFS='=' read -r key raw_value; do
@@ -229,8 +525,8 @@ load_settings() {
 }
 
 setup_config() {
-    repair_config_permissions
-    load_settings
+    repair_config_permissions || return 1
+    load_settings || return 1
     save_settings
 }
 
@@ -262,7 +558,7 @@ verify_requirements() {
 
     env="$(detect_environment)"
     manager="$(detect_package_manager)"
-    load_settings
+    load_settings || return 1
 
     while IFS= read -r command_name; do
         if ! command_exists "$command_name"; then
@@ -280,15 +576,16 @@ verify_requirements() {
     print_warning "Missing required commands: ${missing[*]}"
 
     if [[ "$manager" == "unknown" ]]; then
-        print_error "No supported package manager was found. Please install: ${missing[*]}"
+        print_error "No supported package manager was found."
+        print_error "Install manually: ${missing[*]}"
         return 1
     fi
 
-    if prompt_yes_no "Try to install missing packages automatically?"; then
+    if prompt_yes_no "Try to install the missing packages automatically?"; then
         if install_packages "$manager" "${packages[@]}"; then
             print_success "Dependency installation completed."
         else
-            print_error "Automatic dependency installation failed."
+            print_error "Automatic installation failed."
             return 1
         fi
     else
@@ -322,7 +619,7 @@ ensure_command_available() {
     print_warning "$command_name is not installed."
 
     if [[ "$manager" == "unknown" ]]; then
-        print_error "No supported package manager was found. Please install $command_name manually."
+        print_error "Install $command_name manually and try again."
         return 1
     fi
 
@@ -337,7 +634,7 @@ ensure_command_available() {
 
 validate_openvpn_config() {
     if [[ -z "$CONFIG_PATH" ]]; then
-        print_error "OpenVPN configuration path is empty."
+        print_error "The OpenVPN configuration path is empty."
         return 1
     fi
 
@@ -356,7 +653,7 @@ validate_openvpn_config() {
 
 validate_nmcli_connection() {
     if [[ -z "$CONNECTION_NAME" ]]; then
-        print_error "NetworkManager connection name is empty."
+        print_error "The NetworkManager connection name is empty."
         return 1
     fi
 
@@ -374,7 +671,7 @@ validate_nmcli_connection() {
 }
 
 validate_current_profile() {
-    load_settings
+    load_settings || return 1
 
     if [[ "$VPN_METHOD" == "openvpn" ]]; then
         validate_openvpn_config
@@ -393,9 +690,9 @@ setup_connection() {
     local retries
     local timeout
 
-    echo -e "${YELLOW}Connection Setup${NC}"
-    echo "1) OpenVPN (.ovpn file)"
-    echo "2) NetworkManager"
+    print_section "Configure Connection"
+    echo "1) OpenVPN (.ovpn)"
+    echo "2) NetworkManager (nmcli)"
     read -r -p "Choose method (1/2): " option
 
     case "$option" in
@@ -406,7 +703,7 @@ setup_connection() {
                 return 1
             fi
 
-            read -r -p "Path to .ovpn file: " path
+            read -r -p "Full path to the .ovpn file: " path
             CONFIG_PATH="${path/#\~/$HOME}"
 
             if ! validate_openvpn_config; then
@@ -422,9 +719,9 @@ setup_connection() {
                 return 1
             fi
 
-            echo -e "${YELLOW}Available VPN connections:${NC}"
+            print_section "Available Connections"
             nmcli -f NAME,TYPE connection show | grep -Ei 'vpn|wireguard' || nmcli -f NAME,TYPE connection show
-            read -r -p "Connection name: " connection
+            read -r -p "Exact connection name: " connection
             CONNECTION_NAME="$connection"
 
             if ! validate_nmcli_connection; then
@@ -449,7 +746,7 @@ setup_connection() {
         CONNECT_TIMEOUT="$timeout"
     fi
 
-    save_settings
+    save_settings || return 1
     print_success "Configuration saved."
 }
 
@@ -462,6 +759,7 @@ openvpn_is_running() {
     if [[ -f "$OPENVPN_PID_FILE" ]]; then
         local pid
         pid="$(cat "$OPENVPN_PID_FILE" 2>/dev/null || true)"
+
         if [[ "$pid" =~ ^[0-9]+$ ]] && kill -0 "$pid" >/dev/null 2>&1; then
             return 0
         fi
@@ -477,24 +775,24 @@ nmcli_connection_is_active() {
 }
 
 check_connection() {
-    load_settings
+    load_settings || return 1
 
     if [[ "$VPN_METHOD" == "nmcli" ]] && nmcli_connection_is_active; then
-        print_success "VPN connection is active."
+        print_success "The VPN connection is active."
         return 0
     fi
 
     if [[ "$VPN_METHOD" == "openvpn" ]] && openvpn_is_running; then
-        print_success "OpenVPN process is running."
+        print_success "The OpenVPN process is running."
         return 0
     fi
 
     if vpn_interface_is_up; then
-        print_success "VPN interface is active."
+        print_success "A VPN interface is active."
         return 0
     fi
 
-    print_error "VPN connection is inactive."
+    print_error "The VPN connection is inactive."
     return 1
 }
 
@@ -517,9 +815,11 @@ cleanup_failed_openvpn() {
     if [[ -f "$OPENVPN_PID_FILE" ]]; then
         local pid
         pid="$(cat "$OPENVPN_PID_FILE" 2>/dev/null || true)"
+
         if [[ "$pid" =~ ^[0-9]+$ ]]; then
             run_privileged kill "$pid" >/dev/null 2>&1 || true
         fi
+
         rm -f "$OPENVPN_PID_FILE"
     fi
 }
@@ -545,7 +845,7 @@ establish_connection() {
 
     log_activity "Starting VPN connection..."
 
-    if check_connection; then
+    if check_connection >/dev/null 2>&1; then
         print_warning "A VPN connection already appears to be active."
         return 0
     fi
@@ -555,7 +855,7 @@ establish_connection() {
     fi
 
     if ! validate_current_profile; then
-        print_warning "Current profile is incomplete. Opening setup."
+        print_warning "The current profile is incomplete. Opening setup."
         setup_connection || return 1
     fi
 
@@ -570,7 +870,7 @@ establish_connection() {
 
         if wait_for_connection; then
             log_activity "VPN connection established."
-            print_success "VPN connection established successfully."
+            print_success "VPN connected successfully."
             return 0
         fi
 
@@ -580,8 +880,8 @@ establish_connection() {
         attempt=$((attempt + 1))
     done
 
-    print_error "Could not establish the VPN connection after ${MAX_RETRIES} attempt(s)."
-    print_warning "Check ${LOG_FILE} and ${OPENVPN_LOG_FILE} for details."
+    print_error "Could not connect after ${MAX_RETRIES} attempt(s)."
+    print_warning "Check ${LOG_FILE} and ${OPENVPN_LOG_FILE}."
     return 1
 }
 
@@ -590,13 +890,16 @@ stop_openvpn() {
 
     if [[ -f "$OPENVPN_PID_FILE" ]]; then
         pid="$(cat "$OPENVPN_PID_FILE" 2>/dev/null || true)"
+
         if [[ "$pid" =~ ^[0-9]+$ ]] && kill -0 "$pid" >/dev/null 2>&1; then
             run_privileged kill "$pid" >/dev/null 2>&1 || true
             sleep 2
+
             if kill -0 "$pid" >/dev/null 2>&1; then
                 run_privileged kill -TERM "$pid" >/dev/null 2>&1 || true
             fi
         fi
+
         rm -f "$OPENVPN_PID_FILE"
     fi
 
@@ -614,8 +917,8 @@ stop_nmcli() {
 terminate_connection() {
     log_activity "Stopping VPN connection..."
 
-    if ! check_connection; then
-        print_warning "VPN connection is already inactive."
+    if ! check_connection >/dev/null 2>&1; then
+        print_warning "The VPN connection is already inactive."
         return 0
     fi
 
@@ -626,13 +929,14 @@ terminate_connection() {
     fi
 
     sleep 2
+
     if ! check_connection >/dev/null 2>&1; then
         log_activity "VPN connection stopped."
-        print_success "VPN connection stopped."
+        print_success "VPN disconnected."
         return 0
     fi
 
-    print_error "VPN connection still appears to be active."
+    print_error "The VPN connection still appears to be active."
     return 1
 }
 
@@ -642,19 +946,21 @@ show_public_ip() {
         return 1
     fi
 
-    echo -e "${YELLOW}Public IP:${NC}"
+    print_section "Public IP"
+
     if ! curl -fsS --max-time 8 https://ipinfo.io/ip; then
         curl -fsS --max-time 8 https://api.ipify.org || {
             echo
-            print_error "Unable to retrieve public IP address."
+            print_error "Could not retrieve the public IP address."
             return 1
         }
     fi
+
     echo
 }
 
 show_history() {
-    repair_config_permissions
+    repair_config_permissions || return 1
 
     if [[ ! -s "$LOG_FILE" ]]; then
         print_warning "No activity records found."
@@ -669,48 +975,127 @@ show_history() {
 }
 
 show_diagnostics() {
-    load_settings
+    local platform
+    platform="$(detect_platform)"
 
-    echo -e "${YELLOW}Diagnostics${NC}"
-    echo "Environment: $(detect_environment)"
-    echo "Package manager: $(detect_package_manager)"
-    echo "Method: $VPN_METHOD"
-    echo "OpenVPN config: ${CONFIG_PATH:-not set}"
-    echo "NetworkManager connection: ${CONNECTION_NAME:-not set}"
-    echo "Retries: $MAX_RETRIES"
-    echo "Timeout: ${CONNECT_TIMEOUT}s"
-    echo "Config file: $CONFIG_FILE"
-    echo "Log file: $LOG_FILE"
-    echo "OpenVPN log: $OPENVPN_LOG_FILE"
+    load_settings || return 1
+    print_section "Diagnostics"
+    print_key_value "System" "$(platform_label "$platform")"
+    print_key_value "Package manager" "$(detect_package_manager)"
+    print_key_value "Method" "$VPN_METHOD"
+    print_key_value "OpenVPN file" "${CONFIG_PATH:-not configured}"
+    print_key_value "NetworkManager connection" "${CONNECTION_NAME:-not configured}"
+    print_key_value "Retries" "$MAX_RETRIES"
+    print_key_value "Timeout" "${CONNECT_TIMEOUT}s"
+    print_key_value "Settings" "$CONFIG_FILE"
+    print_key_value "History" "$LOG_FILE"
+    print_key_value "Log OpenVPN" "$OPENVPN_LOG_FILE"
     echo
     check_connection || true
 }
 
 repair_installation() {
     print_info "Repairing local configuration and checking dependencies..."
-    setup_config
+    setup_config || return 1
 
     if verify_requirements; then
         print_success "Repair completed."
         return 0
     fi
 
-    print_error "Repair could not complete because dependencies are still missing."
+    print_error "Repair could not finish because dependencies are still missing."
     return 1
 }
 
+method_label() {
+    case "$VPN_METHOD" in
+        openvpn) echo "OpenVPN (.ovpn)" ;;
+        nmcli) echo "NetworkManager (nmcli)" ;;
+        *) echo "$VPN_METHOD" ;;
+    esac
+}
+
+profile_summary() {
+    if [[ "$VPN_METHOD" == "openvpn" ]]; then
+        if [[ -n "$CONFIG_PATH" ]]; then
+            echo "$(method_label) - configured"
+        else
+            echo "$(method_label) - missing .ovpn file"
+        fi
+    elif [[ "$VPN_METHOD" == "nmcli" ]]; then
+        if [[ -n "$CONNECTION_NAME" ]]; then
+            echo "$(method_label) - configured"
+        else
+            echo "$(method_label) - missing connection name"
+        fi
+    else
+        echo "not configured"
+    fi
+}
+
+show_quick_guide() {
+    print_banner
+    cat <<'EOF'
+Quick Guide
+
+VPN Manager centralizes common VPN tasks in a simple menu. It does not create a
+new VPN by itself: you need an OpenVPN profile (.ovpn) or a VPN connection
+already registered in NetworkManager.
+
+1. Configure connection
+   Choose OpenVPN when you have a .ovpn file.
+   Choose NetworkManager when the VPN already exists in nmcli.
+
+2. Connect
+   The script validates dependencies, tries to connect, waits for the interface
+   to come up and records each attempt in the local history.
+
+3. Disconnect
+   For OpenVPN, the saved PID is used first. If needed, the openvpn process is
+   also stopped. For NetworkManager, nmcli brings the connection down.
+
+4. Status
+   The check looks for an active nmcli connection, an openvpn process and common
+   VPN interfaces: tun, tap, ppp and wg.
+
+5. Diagnostics
+   Shows system, method, active profile, local files and current status.
+
+6. Repair installation
+   Recreates local files, adjusts permissions and offers to install dependencies
+   when apt, dnf, yum, pacman, zypper or pkg is available.
+
+Windows
+
+Windows was not designed to run this script directly. When VPN Manager detects
+Windows, Git Bash, MSYS2, Cygwin or WSL, it shows an explanation and stops
+safely. Use your VPN's official client on Windows, or run this project on
+Linux/Termux.
+EOF
+}
+
 show_interface() {
-    echo -e "\n${BLUE}${APP_NAME} by https://github.com/renegadothedev${NC}"
-    echo "1) Connect"
-    echo "2) Disconnect"
-    echo "3) Check status"
-    echo "4) Show public IP"
-    echo "5) Configure connection"
-    echo "6) View history"
-    echo "7) Diagnostics"
-    echo "8) Repair installation"
-    echo "9) Exit"
-    echo -n "Select an option: "
+    local platform
+    platform="$(detect_platform)"
+    load_settings || return 1
+
+    print_banner
+    print_key_value "System" "$(platform_label "$platform")"
+    print_key_value "Profile" "$(profile_summary)"
+    print_key_value "Local directory" "$CONFIG_DIR"
+    echo
+    echo "  1) Connect"
+    echo "  2) Disconnect"
+    echo "  3) Status"
+    echo "  4) Show public IP"
+    echo "  5) Configure connection"
+    echo "  6) History"
+    echo "  7) Diagnostics"
+    echo "  8) Repair installation"
+    echo "  9) Quick guide"
+    echo "  0) Exit"
+    echo
+    printf 'Choose an option: '
 }
 
 pause_screen() {
@@ -721,10 +1106,19 @@ pause_screen() {
 main() {
     local option
 
-    setup_config
+    handle_arguments "$@"
+    ensure_supported_platform
+    if ! setup_config; then
+        print_error "Could not prepare the local configuration."
+        exit 1
+    fi
 
     while true; do
-        show_interface
+        if ! show_interface; then
+            print_error "Could not load the menu."
+            exit 1
+        fi
+
         read -r option
 
         case "$option" in
@@ -736,7 +1130,8 @@ main() {
             6) show_history ;;
             7) show_diagnostics ;;
             8) repair_installation ;;
-            9)
+            9) show_quick_guide ;;
+            0)
                 print_success "Goodbye."
                 exit 0
                 ;;
