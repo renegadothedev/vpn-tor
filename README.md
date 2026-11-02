@@ -1,134 +1,37 @@
-# 🛡️ VPN Manager
+# VPN Manager
 
-<p align="center">
-  <strong>A polished interactive VPN manager for Linux and Termux.</strong>
-</p>
+**Version 2.1.0** — an interactive VPN controller for Linux, using OpenVPN profiles or existing NetworkManager VPN connections.
 
-<p align="center">
-  <img alt="Shell" src="https://img.shields.io/badge/Shell-Bash-4EAA25?style=for-the-badge&logo=gnu-bash&logoColor=white">
-  <img alt="Linux" src="https://img.shields.io/badge/Linux-Supported-FCC624?style=for-the-badge&logo=linux&logoColor=black">
-  <img alt="Termux" src="https://img.shields.io/badge/Termux-Supported-000000?style=for-the-badge&logo=android&logoColor=3DDC84">
-  <img alt="Windows" src="https://img.shields.io/badge/Windows-Detected%20%26%20Blocked-0078D4?style=for-the-badge&logo=windows&logoColor=white">
-  <img alt="License" src="https://img.shields.io/badge/License-MIT-blue?style=for-the-badge">
-</p>
+> Connection safety is the priority: disconnect operations target only the managed OpenVPN process or the explicitly selected NetworkManager VPN UUID. Other VPN sessions are not intentionally stopped.
 
----
+## What it does
 
-<a id="overview"></a>
+- Starts OpenVPN with an existing provider `.ovpn` configuration.
+- Starts and stops existing NetworkManager VPN or WireGuard profiles using `nmcli`.
+- Checks the **selected** connection, not every VPN interface on the machine.
+- Supports 1–10 retries with connection timeouts of 5–120 seconds.
+- Saves private local settings, activity history and OpenVPN output.
+- Can offer to install the required tool for the selected connection method.
+- Checks the operating system and refuses unsupported native Windows, WSL and macOS setups.
+- Uses HTTPS for public IP lookup; the IP lookup is **not proof of VPN protection**.
 
-## ✨ Overview
+**Important:** This project does not create a VPN server, provide VPN credentials, include a kill switch or configure Tor. Despite the repository name, it is not a Tor client. Always check DNS, IPv4, IPv6 and traffic routing independently when privacy matters.
 
-**VPN Manager** is an interactive Bash tool for managing VPN connections on
-**Linux** and **Termux**. It gives you a clean terminal menu for OpenVPN
-profiles, NetworkManager VPN connections, diagnostics, public IP checks, local
-repair actions, dependency validation and activity logs.
+## Platforms
 
-It also detects **Windows**, **Git Bash**, **MSYS2**, **Cygwin**, **WSL** and
-**macOS**. Unsupported systems receive a clear explanation instead of a confusing
-failure. On Windows, the script tells the user that Windows was not designed to
-run this script directly and stops safely.
-
-> ✅ Built for Linux and Termux.
-> 🪟 Windows is recognized, explained and safely blocked.
-> 🧰 Designed to be understandable for beginners and useful for power users.
-
----
-
-## 📚 Table of Contents
-
-- [✨ Overview](#overview)
-- [🚀 Features](#features)
-- [🧭 Supported Systems](#supported-systems)
-- [🪟 Why Windows Is Blocked](#why-windows-is-blocked)
-- [📦 Installation](#installation)
-- [⚡ Quick Commands](#quick-commands)
-- [🖥️ Menu Preview](#menu-preview)
-- [🧩 First Setup](#first-setup)
-- [🔧 Dependencies](#dependencies)
-- [📁 Local Files](#local-files)
-- [🩹 Repair Mode](#repair-mode)
-- [🔐 Security Notes](#security-notes)
-- [🧪 Troubleshooting](#troubleshooting)
-- [🧠 Project Philosophy](#project-philosophy)
-- [📜 License](#license)
-- [👤 Author](#author)
-
----
-
-<a id="features"></a>
-
-## 🚀 Features
-
-| Feature | Description |
+| Platform | Support |
 | --- | --- |
-| 🟢 OpenVPN support | Connect using `.ovpn` configuration files. |
-| 🌐 NetworkManager support | Use existing `nmcli` VPN connections. |
-| 🧠 System detection | Detects Linux, Termux, Windows, WSL, macOS and unknown systems. |
-| 🪟 Windows safety notice | Explains why native Windows is not supported and exits safely. |
-| 🔁 Connection retries | Retries failed connections with a configurable timeout. |
-| 📡 Public IP check | Shows your current public IP using a fallback provider. |
-| 🧾 Activity history | Stores connection and repair activity locally. |
-| 🪵 OpenVPN log | Keeps OpenVPN output in a separate log file. |
-| 🧰 Repair mode | Recreates local files, fixes permissions and checks dependencies. |
-| 📦 Dependency helper | Offers package installation when a supported package manager exists. |
-| 🔒 Safer settings parser | Reads settings as data instead of sourcing shell code. |
-| 🧭 Built-in quick guide | Includes a full explanation inside the terminal menu. |
+| Linux (Ubuntu, Debian, Fedora, Arch, openSUSE, etc.) | Supported with OpenVPN or NetworkManager and appropriate permissions |
+| Termux | Experimental OpenVPN-only; needs a functional TUN device and VPN privileges, typically root. Standard unrooted Termux cannot establish system VPN tunnels. |
+| Native Windows, Git Bash, Cygwin, MSYS2 | Compatibility notice only; use a native VPN application |
+| WSL | Compatibility notice only; cannot be used to configure the host Windows VPN |
+| macOS | Unsupported |
 
----
-
-<a id="supported-systems"></a>
-
-## 🧭 Supported Systems
-
-| System | Status | What Happens |
-| --- | --- | --- |
-| 🐧 Linux | ✅ Supported | Full VPN management through OpenVPN or NetworkManager. |
-| 🤖 Termux | ✅ Supported | Works with Termux tools and `pkg` when available. |
-| 🪟 Windows | ⚠️ Recognized | Shows a clear warning and stops safely. |
-| 🧰 Git Bash / MSYS2 / Cygwin | ⚠️ Recognized | Explains that these shells do not control the real Windows VPN stack. |
-| 🧪 WSL | ⚠️ Recognized | Useful for reading/testing, not for controlling the Windows VPN. |
-| 🍎 macOS | 🚧 Not supported yet | Detected and stopped with an explanation. |
-| ❓ Unknown | 🚧 Not supported | Stopped safely with a compatibility message. |
-
----
-
-<a id="why-windows-is-blocked"></a>
-
-## 🪟 Why Windows Is Blocked
-
-VPN Manager depends on Linux networking behavior and tools:
-
-- `openvpn` to start `.ovpn` profiles.
-- `nmcli` to control NetworkManager VPN connections.
-- `ip` to inspect network interfaces.
-- `pgrep` and `pkill` to find and stop processes.
-- `sudo` or root permissions for privileged network operations.
-
-On native Windows, those tools do not manage the real Windows network stack.
-Even if the script opens in Git Bash, MSYS2 or Cygwin, the VPN itself is still
-controlled by Windows.
-
-That is why VPN Manager does this:
-
-```text
-Detected system: Windows
-
-Windows was not designed to run this script directly.
-The script ran, recognized the system and stopped safely.
-```
-
-✅ For Windows, use your VPN provider's official client.
-✅ For this project, use Linux or Termux.
-
----
-
-<a id="installation"></a>
-
-## 📦 Installation
-
-Clone or download the repository, then make the script executable:
+## Install
 
 ```bash
+git clone https://github.com/renegadothedev/vpn-tor.git
+cd vpn-tor
 chmod +x vpn-manager
 ./vpn-manager
 ```
@@ -140,312 +43,80 @@ sudo install -m 755 vpn-manager /usr/local/bin/vpn-manager
 vpn-manager
 ```
 
-On Windows, open:
-
-```text
-vpn-manager.cmd
-```
-
-It will show the compatibility message and stop safely.
-
----
-
-<a id="quick-commands"></a>
-
-## ⚡ Quick Commands
-
-```bash
-./vpn-manager
-```
-
-Start the interactive menu.
+Available flags:
 
 ```bash
 ./vpn-manager --help
-```
-
-Show command usage and supported systems.
-
-```bash
 ./vpn-manager --version
-```
-
-Show the current VPN Manager version.
-
-```bash
 ./vpn-manager --check-platform
 ```
 
-Print the detected platform and whether it is supported.
+## Configure and connect
 
----
+1. Open the interactive menu and select **Configure connection**.
+2. For OpenVPN, select a valid `.ovpn` file supplied by a trusted provider. For NetworkManager, enter an existing VPN connection's exact name.
+3. Choose the retry count (1–10) and timeout (5–120 seconds).
+4. Choose **Connect** and authorize system-level actions only when you trust the profile and have administrative privileges.
+5. Use **Status** and **Diagnostics** to verify the configured VPN's state.
+6. Choose **Disconnect** to stop the configured VPN.
 
-<a id="menu-preview"></a>
+### How status checks work
 
-## 🖥️ Menu Preview
+- **OpenVPN:** reads the saved PID, verifies that its process command matches `openvpn --config <configured-file>`, and checks for `Initialization Sequence Completed` in the current session log.
+- **NetworkManager:** identifies the connection UUID and checks whether that UUID is active.
+- **Other VPNs:** ignored. A random active tunnel will not make this application's configured VPN appear connected.
 
-```text
-----------------------------------------------------------------------------
-VPN Manager 2.0.0
-Interactive VPN manager for OpenVPN and NetworkManager.
-Author: https://github.com/renegadothedev
-----------------------------------------------------------------------------
-  System:                      Linux
-  Profile:                     OpenVPN (.ovpn) - missing .ovpn file
-  Local directory:             ~/.vpn-manager
+On Linux, OpenVPN process verification relies on `/proc/<pid>/cmdline`. If the system hides that information, disconnect fails conservatively rather than killing an unverified process.
 
-  1) Connect
-  2) Disconnect
-  3) Status
-  4) Show public IP
-  5) Configure connection
-  6) History
-  7) Diagnostics
-  8) Repair installation
-  9) Quick guide
-  0) Exit
+## Local data
 
-Choose an option:
-```
+The program creates `~/.vpn-manager` with restricted permissions:
 
----
-
-<a id="first-setup"></a>
-
-## 🧩 First Setup
-
-1. Run the script:
-
-   ```bash
-   ./vpn-manager
-   ```
-
-2. Open:
-
-   ```text
-   Configure connection
-   ```
-
-3. Choose your VPN method:
-
-   | Method | Use When |
-   | --- | --- |
-   | `OpenVPN (.ovpn)` | You have a VPN provider configuration file. |
-   | `NetworkManager (nmcli)` | Your VPN already exists as a NetworkManager connection. |
-
-4. Provide the required information:
-
-   - For OpenVPN: the full path to your `.ovpn` file.
-   - For NetworkManager: the exact connection name from `nmcli`.
-
-5. Adjust connection retries and timeout if needed.
-
-6. Return to the menu and choose:
-
-   ```text
-   Connect
-   ```
-
-7. Confirm the result with:
-
-   ```text
-   Status
-   Diagnostics
-   Show public IP
-   ```
-
----
-
-<a id="dependencies"></a>
-
-## 🔧 Dependencies
-
-### Common Tools
-
-| Tool | Purpose |
+| File | Role |
 | --- | --- |
-| `bash` | Runs the script. |
-| `openvpn` | Starts OpenVPN profiles. |
-| `curl` | Looks up the public IP address. |
-| `pgrep` | Checks running processes. |
-| `ip` | Checks VPN interfaces on Linux. |
-| `nmcli` | Controls NetworkManager connections. |
-| `sudo` | Runs privileged actions when needed. |
+| `settings` | VPN method, selected profile, retries and timeout |
+| `activity.log` | Connection activity |
+| `openvpn.log` | OpenVPN output for the most recent attempt |
+| `openvpn.pid` | Process ID of the OpenVPN instance started by this tool |
 
-### Supported Package Managers
+Set `VPN_MANAGER_CONFIG_DIR=/your/private/path` to use an alternate location.
 
-VPN Manager can offer automatic dependency installation when one of these is
-available:
+Settings are parsed as data, not executed as shell code. Updates use a temporary file and atomic rename. The manager refuses symlinks at the configured local file paths. **Use a private, trusted configuration directory.** Symlink checks do not eliminate every possible race condition if another user can write to a parent directory.
 
-| Package Manager | Environment |
-| --- | --- |
-| `apt-get` | Debian, Ubuntu and derivatives |
-| `dnf` | Fedora and modern RPM systems |
-| `yum` | Older RPM systems |
-| `pacman` | Arch Linux and derivatives |
-| `zypper` | openSUSE |
-| `pkg` | Termux |
+## Dependencies
 
----
+- Bash
+- OpenVPN for the OpenVPN connection method, or `nmcli` for NetworkManager
+- `sudo` or suitable system privileges when needed
+- `curl` only when using the public IP feature
+- Standard shell utilities
 
-<a id="local-files"></a>
+Dependency installation is optional and asks first. Supported package managers include `apt-get`, `dnf`, `yum`, `pacman`, `zypper` and Termux `pkg`.
 
-## 📁 Local Files
+## Tests
 
-VPN Manager stores its local data inside the user's home directory:
-
-```text
-~/.vpn-manager/settings
-~/.vpn-manager/activity.log
-~/.vpn-manager/openvpn.log
-~/.vpn-manager/openvpn.pid
-```
-
-### What Each File Does
-
-| File | Purpose |
-| --- | --- |
-| `settings` | Stores the selected method, profile path, retries and timeout. |
-| `activity.log` | Stores high-level activity history. |
-| `openvpn.log` | Stores OpenVPN runtime output. |
-| `openvpn.pid` | Stores the OpenVPN process ID when started by the script. |
-
-### Custom Config Directory
-
-If your `HOME` directory cannot be written to, choose another directory:
+Run the offline suite without a real VPN connection:
 
 ```bash
-VPN_MANAGER_CONFIG_DIR=/tmp/vpn-manager ./vpn-manager
+bash -n vpn-manager
+bash tests/test.sh
 ```
 
-Local permissions are adjusted when possible:
+GitHub Actions runs the offline checks on pushes and pull requests. This does **not** replace testing a real VPN connection or validating that traffic takes a secure route.
 
-```text
-Directory:       700
-Sensitive files: 600
-```
+## Troubleshooting
 
----
+- **Cannot connect:** inspect the OpenVPN log, profile, provider credentials and required TUN or administrator permissions.
+- **Status shows inactive:** the configured connection may be unavailable or the managed process cannot be verified.
+- **Cannot disconnect:** the manager deliberately refuses to signal an unidentified process. Inspect the OpenVPN PID and process manually.
+- **NetworkManager not found:** import your VPN first and select its exact connection name.
+- **Termux fails:** most Android installations do not allow creating a VPN tunnel directly from an unrooted terminal. Use Android's VPN APIs through an appropriate application.
+- **Windows shows an informational message:** intentional; this Bash project manages Linux networking.
 
-<a id="repair-mode"></a>
+## License
 
-## 🩹 Repair Mode
+MIT. See [LICENSE.txt](LICENSE.txt). The original copyright attribution is preserved.
 
-The **Repair installation** option is designed for local cleanup and sanity
-checks.
+## Author
 
-It can:
-
-- Recreate the local configuration directory.
-- Recreate missing settings and log files.
-- Adjust local file permissions.
-- Check required commands.
-- Offer automatic dependency installation.
-- Confirm that the selected VPN method has the tools it needs.
-
-It cannot fix:
-
-- Invalid VPN credentials.
-- Broken provider configuration files.
-- Blocked networks.
-- Provider-side outages.
-- Missing kernel support.
-- Administrator permission denial.
-
----
-
-<a id="security-notes"></a>
-
-## 🔐 Security Notes
-
-- Do not run the script as root unless your environment specifically requires
-  it.
-- On Linux, privileged actions use `sudo` when possible.
-- The `settings` file is parsed safely and is not executed as shell code.
-- Logs stay local under `~/.vpn-manager`.
-- File paths and connection names are validated before connection attempts.
-- Windows is blocked intentionally to avoid pretending that a Unix-like shell can
-  control the real Windows VPN stack.
-
----
-
-<a id="troubleshooting"></a>
-
-## 🧪 Troubleshooting
-
-### The VPN does not connect
-
-Try this sequence:
-
-1. Run `Diagnostics`.
-2. Run `Repair installation`.
-3. Confirm that the `.ovpn` file exists and is readable.
-4. Confirm that the `nmcli` connection name is exact.
-5. Check `~/.vpn-manager/openvpn.log`.
-6. Make sure your user can run privileged commands through `sudo`.
-7. Test the VPN with your provider's official client.
-
-### Windows opens the script but does not connect
-
-That is expected. Windows is detected and blocked on purpose.
-
-Use:
-
-```text
-vpn-manager.cmd
-```
-
-It displays the compatibility explanation clearly.
-
-### My home directory is read-only
-
-Use a custom configuration directory:
-
-```bash
-VPN_MANAGER_CONFIG_DIR=/tmp/vpn-manager ./vpn-manager
-```
-
-### I do not know which method to choose
-
-Use this rule:
-
-| Situation | Choose |
-| --- | --- |
-| You have a `.ovpn` file | OpenVPN |
-| Your VPN already appears in NetworkManager | NetworkManager |
-| You are on Windows | Official Windows VPN client |
-| You are on Termux | OpenVPN |
-
----
-
-<a id="project-philosophy"></a>
-
-## 🧠 Project Philosophy
-
-VPN Manager is meant to be:
-
-- **Clear**: every unsupported platform gets an explanation.
-- **Practical**: common VPN tasks stay one menu away.
-- **Recoverable**: local repair actions are built in.
-- **Safe**: settings are not executed as shell code.
-- **Honest**: Windows support is not faked.
-
----
-
-<a id="license"></a>
-
-## 📜 License
-
-This project is released under the **MIT License**.
-
-See [LICENSE.txt](LICENSE.txt) for details.
-
----
-
-<a id="author"></a>
-
-## 👤 Author
-
-Created by [renegadothedev](https://github.com/renegadothedev).
-
-If this project helped you, consider starring the repository ⭐
+[renegadothedev](https://github.com/renegadothedev) — open-source tools, Linux and automation.

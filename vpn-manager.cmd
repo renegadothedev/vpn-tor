@@ -1,28 +1,15 @@
 @echo off
 setlocal
-title VPN Manager
-
+title VPN Manager — Windows Compatibility Notice
 echo.
-echo --------------------------------------------------------------
-echo VPN Manager 2.0.0
-echo Interactive VPN manager for OpenVPN and NetworkManager.
-echo --------------------------------------------------------------
+echo VPN Manager 2.1.0
 echo.
-echo Detected system: Windows
+echo This VPN manager runs on Linux.
+echo Windows, Git Bash, MSYS2, Cygwin and WSL cannot use this
+echo script to safely configure the host Windows VPN stack.
 echo.
-echo Windows was not designed to run this script directly.
+echo Please use your VPN provider's official Windows application.
+echo For Linux, run ./vpn-manager inside a Bash terminal.
 echo.
-echo This project uses Linux commands such as openvpn, nmcli, ip,
-echo pgrep, pkill and sudo/root. On native Windows these commands
-echo do not control the real system VPN.
-echo.
-echo Correct usage:
-echo   1. Run it on Linux or Termux.
-echo   2. Use your VPN provider's official client on Windows.
-echo   3. Use WSL only for reading/testing, not as the main VPN.
-echo.
-echo The script opened, recognized the system and stopped safely.
-echo.
-
 if /i not "%VPN_MANAGER_NO_PAUSE%"=="1" pause
 exit /b 0

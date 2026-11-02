@@ -5,7 +5,7 @@
 # Windows, WSL and macOS are detected and receive a clear support notice.
 
 APP_NAME="VPN Manager"
-APP_VERSION="2.0.0"
+APP_VERSION="2.1.0"
 APP_AUTHOR_URL="https://github.com/renegadothedev"
 APP_DESCRIPTION="Interactive VPN manager for OpenVPN and NetworkManager."
 
@@ -184,8 +184,8 @@ Windows was not designed to run this script directly.
 This manager uses Linux tools and behavior, such as:
   - openvpn to start .ovpn profiles
   - nmcli for NetworkManager connections
-  - ip to detect tun, tap, ppp and wg interfaces
-  - pgrep/pkill to find and stop processes
+  - OpenVPN to manage a specifically tracked tunnel
+  - nmcli for an explicitly configured NetworkManager VPN
   - sudo/root for privileged network operations
 
 On native Windows, these commands do not control the system network stack.
@@ -194,7 +194,7 @@ real VPN is still managed by Windows.
 
 Correct usage:
   1. Use a real Linux distribution, such as Debian, Ubuntu, Fedora or Arch.
-  2. Use Termux on Android when you need a portable environment.
+  2. Use Termux on Android only if VPN/tun permissions are available.
   3. Use your VPN provider's official client on Windows.
   4. In WSL, treat this project as read/test only, not as the main Windows VPN.
 
@@ -346,8 +346,8 @@ run_privileged() {
 }
 
 detect_package_manager() {
-    if [[ "$(detect_environment)" == "termux" ]] && command_exists pkg; then
-        echo "pkg"
+    if [[ "$(detect_environment)" == "termux" ]]; then
+        if command_exists pkg; then echo "pkg"; else echo "unknown"; fi
     elif command_exists apt-get; then
         echo "apt"
     elif command_exists dnf; then
@@ -381,7 +381,7 @@ install_packages() {
             run_privileged yum install -y "$@"
             ;;
         pacman)
-            run_privileged pacman -Sy --noconfirm "$@"
+            run_privileged pacman -S --needed --noconfirm "$@"
             ;;
         zypper)
             run_privileged zypper --non-interactive install "$@"
@@ -424,22 +424,32 @@ prompt_yes_no() {
 }
 
 repair_config_permissions() {
-    if ! mkdir -p "$CONFIG_DIR" 2>/dev/null; then
-        print_error "Could not create the local directory: $CONFIG_DIR"
-        print_warning "Use VPN_MANAGER_CONFIG_DIR=/writable/path to choose another location."
+    local file
+    if [[ -L "$CONFIG_DIR" ]]; then
+        print_error "The configuration directory cannot be a symbolic link."
         return 1
     fi
-
-    if ! touch "$CONFIG_FILE" "$LOG_FILE" "$OPENVPN_LOG_FILE" 2>/dev/null; then
-        print_error "Could not create local files in: $CONFIG_DIR"
-        print_warning "Check write permissions or use VPN_MANAGER_CONFIG_DIR."
+    if ! (umask 077; mkdir -p -- "$CONFIG_DIR") 2>/dev/null ||
+       ! chmod 700 -- "$CONFIG_DIR" 2>/dev/null; then
+        print_error "Could not create or secure the local directory: $CONFIG_DIR"
         return 1
     fi
-
-    chmod 700 "$CONFIG_DIR" 2>/dev/null || true
-    chmod 600 "$CONFIG_FILE" "$LOG_FILE" "$OPENVPN_LOG_FILE" 2>/dev/null || true
+    for file in "$CONFIG_FILE" "$LOG_FILE" "$OPENVPN_LOG_FILE" "$OPENVPN_PID_FILE"; do
+        if [[ -L "$file" ]]; then
+            print_error "Refusing a symlink in local data: $file"
+            return 1
+        fi
+        if [[ "$file" == "$OPENVPN_PID_FILE" && ! -e "$file" ]]; then
+            continue
+        fi
+        if ! (umask 077; touch -- "$file" && chmod 600 -- "$file") 2>/dev/null; then
+            print_error "Could not create or secure: $file"
+            return 1
+        fi
+    done
     return 0
 }
+
 
 escape_config_value() {
     local value="$1"
@@ -450,31 +460,50 @@ escape_config_value() {
 }
 
 unescape_config_value() {
-    local value="$1"
-
-    value="${value%\"}"
-    value="${value#\"}"
-    value="${value//\\\"/\"}"
-    value="${value//\\\\/\\}"
-    printf '%s' "$value"
+    local raw_value="$1" output="" char i
+    [[ "$raw_value" == \"*\" && "$raw_value" == *\" ]] || return 1
+    raw_value="${raw_value:1:${#raw_value}-2}"
+    for ((i=0; i<${#raw_value}; i++)); do
+        char="${raw_value:i:1}"
+        if [[ "$char" == '\' ]]; then
+            ((i+=1))
+            ((i < ${#raw_value})) || return 1
+            char="${raw_value:i:1}"
+            case "$char" in
+                '\'|'"') ;;
+                *) return 1 ;;
+            esac
+        fi
+        output+="$char"
+    done
+    printf '%s' "$output"
 }
 
-save_settings() {
-    repair_config_permissions || return 1
 
-    {
+save_settings() {
+    local tmp
+    repair_config_permissions || return 1
+    tmp="$(umask 077; mktemp "${CONFIG_FILE}.tmp.XXXXXXXX")" || {
+        print_error "Could not create temporary settings."
+        return 1
+    }
+    if ! {
         printf 'VPN_METHOD="%s"\n' "$(escape_config_value "$VPN_METHOD")"
         printf 'CONFIG_PATH="%s"\n' "$(escape_config_value "$CONFIG_PATH")"
         printf 'CONNECTION_NAME="%s"\n' "$(escape_config_value "$CONNECTION_NAME")"
         printf 'MAX_RETRIES="%s"\n' "$(escape_config_value "$MAX_RETRIES")"
         printf 'CONNECT_TIMEOUT="%s"\n' "$(escape_config_value "$CONNECT_TIMEOUT")"
-    } > "$CONFIG_FILE" || {
-        print_error "Could not save settings to: $CONFIG_FILE"
+    } > "$tmp"; then
+        rm -f -- "$tmp"
+        return 1
+    fi
+    chmod 600 -- "$tmp" && mv -f -- "$tmp" "$CONFIG_FILE" || {
+        rm -f -- "$tmp"
+        print_error "Could not atomically save settings."
         return 1
     }
-
-    chmod 600 "$CONFIG_FILE" 2>/dev/null || true
 }
+
 
 reset_settings() {
     VPN_METHOD="openvpn"
@@ -486,21 +515,25 @@ reset_settings() {
 }
 
 load_settings() {
-    local key
-    local raw_value
-    local value
-
+    local key raw_value value line
     repair_config_permissions || return 1
-
     if [[ ! -s "$CONFIG_FILE" ]]; then
         reset_settings
         return $?
     fi
-
-    while IFS='=' read -r key raw_value; do
-        [[ -z "$key" || "$key" == \#* ]] && continue
-        value="$(unescape_config_value "$raw_value")"
-
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        [[ -z "$line" || "$line" == \#* ]] && continue
+        [[ "$line" == *=* ]] || continue
+        key="${line%%=*}"
+        raw_value="${line#*=}"
+        case "$key" in
+            VPN_METHOD|CONFIG_PATH|CONNECTION_NAME|MAX_RETRIES|CONNECT_TIMEOUT) ;;
+            *) continue ;;
+        esac
+        if ! value="$(unescape_config_value "$raw_value")"; then
+            print_warning "Ignoring malformed setting: $key"
+            continue
+        fi
         case "$key" in
             VPN_METHOD) VPN_METHOD="$value" ;;
             CONFIG_PATH) CONFIG_PATH="$value" ;;
@@ -509,20 +542,24 @@ load_settings() {
             CONNECT_TIMEOUT) CONNECT_TIMEOUT="$value" ;;
         esac
     done < "$CONFIG_FILE"
-
     if [[ "$VPN_METHOD" != "openvpn" && "$VPN_METHOD" != "nmcli" ]]; then
-        print_warning "Invalid VPN method found in settings. Resetting to OpenVPN."
         VPN_METHOD="openvpn"
+        print_warning "Invalid method in settings. Using OpenVPN."
     fi
-
-    if ! [[ "$MAX_RETRIES" =~ ^[0-9]+$ ]] || [[ "$MAX_RETRIES" -lt 1 ]]; then
+    if ! [[ "$MAX_RETRIES" =~ ^[0-9]{1,2}$ ]] ||
+       ((10#$MAX_RETRIES < 1 || 10#$MAX_RETRIES > 10)); then
         MAX_RETRIES=3
+    else
+        MAX_RETRIES=$((10#$MAX_RETRIES))
     fi
-
-    if ! [[ "$CONNECT_TIMEOUT" =~ ^[0-9]+$ ]] || [[ "$CONNECT_TIMEOUT" -lt 5 ]]; then
+    if ! [[ "$CONNECT_TIMEOUT" =~ ^[0-9]{1,3}$ ]] ||
+       ((10#$CONNECT_TIMEOUT < 5 || 10#$CONNECT_TIMEOUT > 120)); then
         CONNECT_TIMEOUT=20
+    else
+        CONNECT_TIMEOUT=$((10#$CONNECT_TIMEOUT))
     fi
 }
+
 
 setup_config() {
     repair_config_permissions || return 1
@@ -531,21 +568,14 @@ setup_config() {
 }
 
 required_commands() {
-    local env="$1"
-
-    echo "curl"
-    echo "pgrep"
-
-    if [[ "$env" != "termux" ]]; then
-        echo "ip"
-    fi
-
+    # Dependencies are selected by the configured connection backend.
     if [[ "$VPN_METHOD" == "nmcli" ]]; then
-        echo "nmcli"
+        printf '%s\n' nmcli
     else
-        echo "openvpn"
+        printf '%s\n' openvpn
     fi
 }
+
 
 verify_requirements() {
     local env
@@ -613,6 +643,10 @@ ensure_command_available() {
         return 0
     fi
 
+    if [[ "$command_name" == nmcli && "$(detect_environment)" == termux ]]; then
+        print_error "NetworkManager is not supported in Termux. Use OpenVPN."
+        return 1
+    fi
     manager="$(detect_package_manager)"
     package="$(package_for_command "$command_name" "$manager")"
 
@@ -651,24 +685,29 @@ validate_openvpn_config() {
     return 0
 }
 
-validate_nmcli_connection() {
-    if [[ -z "$CONNECTION_NAME" ]]; then
-        print_error "The NetworkManager connection name is empty."
-        return 1
-    fi
-
-    if ! command_exists nmcli; then
-        print_error "nmcli is not installed."
-        return 1
-    fi
-
-    if ! nmcli -t -f NAME connection show | grep -Fxq "$CONNECTION_NAME"; then
-        print_error "NetworkManager connection was not found: $CONNECTION_NAME"
-        return 1
-    fi
-
-    return 0
+nmcli_connection_uuid() {
+    [[ -n "$CONNECTION_NAME" ]] && command_exists nmcli || return 1
+    local uuid
+    uuid="$(nmcli -g connection.uuid connection show "$CONNECTION_NAME" 2>/dev/null)" || return 1
+    [[ "$uuid" =~ ^[a-fA-F0-9-]{36}$ ]] || return 1
+    printf '%s\n' "$uuid"
 }
+
+validate_nmcli_connection() {
+    local type
+    [[ -n "$CONNECTION_NAME" ]] || { print_error "Missing VPN connection name."; return 1; }
+    command_exists nmcli || { print_error "nmcli is unavailable."; return 1; }
+    type="$(nmcli -g connection.type connection show "$CONNECTION_NAME" 2>/dev/null)" || {
+        print_error "Connection not found: $CONNECTION_NAME"
+        return 1
+    }
+    case "$type" in
+        vpn|wireguard) ;;
+        *) print_error "Selected connection is not a VPN."; return 1 ;;
+    esac
+    nmcli_connection_uuid >/dev/null || { print_error "Unable to identify VPN UUID."; return 1; }
+}
+
 
 validate_current_profile() {
     load_settings || return 1
@@ -737,64 +776,66 @@ setup_connection() {
     esac
 
     read -r -p "Connection retries [${MAX_RETRIES}]: " retries
-    if [[ -n "$retries" && "$retries" =~ ^[0-9]+$ && "$retries" -gt 0 ]]; then
-        MAX_RETRIES="$retries"
+    if [[ -n "$retries" && "$retries" =~ ^[0-9]{1,2}$ ]] && ((10#$retries >= 1 && 10#$retries <= 10)); then
+        MAX_RETRIES=$((10#$retries))
     fi
 
     read -r -p "Connection timeout in seconds [${CONNECT_TIMEOUT}]: " timeout
-    if [[ -n "$timeout" && "$timeout" =~ ^[0-9]+$ && "$timeout" -ge 5 ]]; then
-        CONNECT_TIMEOUT="$timeout"
+    if [[ -n "$timeout" && "$timeout" =~ ^[0-9]{1,3}$ ]] && ((10#$timeout >= 5 && 10#$timeout <= 120)); then
+        CONNECT_TIMEOUT=$((10#$timeout))
     fi
 
     save_settings || return 1
     print_success "Configuration saved."
 }
 
-vpn_interface_is_up() {
-    command_exists ip || return 1
-    ip -o link show 2>/dev/null | grep -Eq '^[0-9]+: (tun|tap|ppp|wg)[0-9A-Za-z_.-]*:.*state (UP|UNKNOWN)'
-}
-
-openvpn_is_running() {
-    if [[ -f "$OPENVPN_PID_FILE" ]]; then
-        local pid
-        pid="$(cat "$OPENVPN_PID_FILE" 2>/dev/null || true)"
-
-        if [[ "$pid" =~ ^[0-9]+$ ]] && kill -0 "$pid" >/dev/null 2>&1; then
-            return 0
+managed_openvpn_pid() {
+    local pid binary="" arg previous="" matched=0
+    [[ -f "$OPENVPN_PID_FILE" && ! -L "$OPENVPN_PID_FILE" ]] || return 1
+    IFS= read -r pid < "$OPENVPN_PID_FILE" || [[ -n "$pid" ]] || return 1
+    [[ "$pid" =~ ^[0-9]{1,9}$ ]] || return 1
+    pid=$((10#$pid))
+    ((pid > 1)) || return 1
+    kill -0 "$pid" 2>/dev/null || return 1
+    [[ -r "/proc/$pid/cmdline" ]] || return 1
+    while IFS= read -r -d '' arg; do
+        if [[ -z "$binary" ]]; then binary="$arg"; fi
+        if [[ "$previous" == "--config" && "$arg" == "$CONFIG_PATH" && -n "$CONFIG_PATH" ]]; then
+            matched=1
         fi
-    fi
-
-    pgrep -x openvpn >/dev/null 2>&1
+        previous="$arg"
+    done < "/proc/$pid/cmdline"
+    [[ "${binary##*/}" == "openvpn" && "$matched" -eq 1 ]] || return 1
+    printf '%s\n' "$pid"
 }
 
+openvpn_is_running() { managed_openvpn_pid >/dev/null; }
+openvpn_is_connected() {
+    openvpn_is_running || return 1
+    [[ -f "$OPENVPN_LOG_FILE" && ! -L "$OPENVPN_LOG_FILE" ]] || return 1
+    grep -Fq 'Initialization Sequence Completed' "$OPENVPN_LOG_FILE" 2>/dev/null
+}
 nmcli_connection_is_active() {
-    [[ -n "$CONNECTION_NAME" ]] || return 1
-    command_exists nmcli || return 1
-    nmcli -t -f NAME connection show --active 2>/dev/null | grep -Fxq "$CONNECTION_NAME"
+    local uuid
+    uuid="$(nmcli_connection_uuid)" || return 1
+    nmcli -t -f UUID connection show --active 2>/dev/null | grep -Fxq -- "$uuid"
 }
+
 
 check_connection() {
     load_settings || return 1
-
-    if [[ "$VPN_METHOD" == "nmcli" ]] && nmcli_connection_is_active; then
-        print_success "The VPN connection is active."
+    if [[ "$VPN_METHOD" == nmcli ]] && nmcli_connection_is_active; then
+        print_success "Configured NetworkManager VPN is active."
         return 0
     fi
-
-    if [[ "$VPN_METHOD" == "openvpn" ]] && openvpn_is_running; then
-        print_success "The OpenVPN process is running."
+    if [[ "$VPN_METHOD" == openvpn ]] && openvpn_is_connected; then
+        print_success "Managed OpenVPN tunnel completed initialization."
         return 0
     fi
-
-    if vpn_interface_is_up; then
-        print_success "A VPN interface is active."
-        return 0
-    fi
-
-    print_error "The VPN connection is inactive."
+    print_warning "Configured VPN is not confirmed connected."
     return 1
 }
+
 
 wait_for_connection() {
     local waited=0
@@ -812,133 +853,127 @@ wait_for_connection() {
 }
 
 cleanup_failed_openvpn() {
-    if [[ -f "$OPENVPN_PID_FILE" ]]; then
-        local pid
-        pid="$(cat "$OPENVPN_PID_FILE" 2>/dev/null || true)"
-
-        if [[ "$pid" =~ ^[0-9]+$ ]]; then
-            run_privileged kill "$pid" >/dev/null 2>&1 || true
+    local pid i
+    pid="$(managed_openvpn_pid)" || {
+        # Discard stale PID, never signal a process that cannot be verified.
+        if [[ -f "$OPENVPN_PID_FILE" && ! -L "$OPENVPN_PID_FILE" ]]; then
+            rm -f -- "$OPENVPN_PID_FILE"
         fi
-
-        rm -f "$OPENVPN_PID_FILE"
-    fi
+        return 0
+    }
+    run_privileged kill -TERM "$pid" >/dev/null 2>&1 || {
+        print_error "Unable to stop managed OpenVPN PID $pid."
+        return 1
+    }
+    for ((i=0; i<5; i++)); do
+        if ! kill -0 "$pid" 2>/dev/null; then
+            rm -f -- "$OPENVPN_PID_FILE"
+            return 0
+        fi
+        sleep 1
+    done
+    print_warning "Managed OpenVPN did not stop within five seconds."
+    return 1
 }
+
 
 start_openvpn() {
     validate_openvpn_config || return 1
-    cleanup_failed_openvpn
-
-    run_privileged openvpn \
-        --config "$CONFIG_PATH" \
-        --daemon \
-        --writepid "$OPENVPN_PID_FILE" \
-        --log-append "$OPENVPN_LOG_FILE"
+    repair_config_permissions || return 1
+    cleanup_failed_openvpn || return 1
+    run_privileged openvpn --config "$CONFIG_PATH" --daemon \
+        --writepid "$OPENVPN_PID_FILE" --log "$OPENVPN_LOG_FILE" || {
+        print_error "Unable to start OpenVPN. Inspect the log and privileges."
+        return 1
+    }
 }
+
 
 start_nmcli() {
+    local uuid
     validate_nmcli_connection || return 1
-    nmcli connection up "$CONNECTION_NAME"
+    uuid="$(nmcli_connection_uuid)" || return 1
+    nmcli --wait "$CONNECT_TIMEOUT" connection up uuid "$uuid"
 }
+
 
 establish_connection() {
-    local attempt=1
-
-    log_activity "Starting VPN connection..."
-
+    local attempt started
+    log_activity "Starting configured VPN..."
     if check_connection >/dev/null 2>&1; then
-        print_warning "A VPN connection already appears to be active."
+        print_warning "The configured VPN already appears connected."
         return 0
     fi
-
-    if ! verify_requirements; then
-        return 1
-    fi
-
     if ! validate_current_profile; then
-        print_warning "The current profile is incomplete. Opening setup."
+        print_warning "Configure a valid VPN profile first."
         setup_connection || return 1
     fi
-
-    while [[ "$attempt" -le "$MAX_RETRIES" ]]; do
+    verify_requirements || return 1
+    validate_current_profile || return 1
+    for ((attempt=1; attempt<=MAX_RETRIES; attempt++)); do
         print_info "Connection attempt ${attempt}/${MAX_RETRIES}..."
-
-        if [[ "$VPN_METHOD" == "openvpn" ]]; then
-            start_openvpn
+        started=0
+        if [[ "$VPN_METHOD" == openvpn ]]; then
+            if start_openvpn; then started=1; fi
         else
-            start_nmcli
+            if start_nmcli; then started=1; fi
         fi
-
-        if wait_for_connection; then
-            log_activity "VPN connection established."
-            print_success "VPN connected successfully."
+        if ((started)) && wait_for_connection; then
+            log_activity "Configured VPN established."
             return 0
         fi
-
-        log_activity "Connection attempt ${attempt} failed."
-        cleanup_failed_openvpn
-        sleep 2
-        attempt=$((attempt + 1))
+        log_activity "VPN attempt $attempt failed."
+        if [[ "$VPN_METHOD" == openvpn ]]; then
+            cleanup_failed_openvpn || return 1
+        fi
+        if ((attempt < MAX_RETRIES)); then sleep 2; fi
     done
-
-    print_error "Could not connect after ${MAX_RETRIES} attempt(s)."
-    print_warning "Check ${LOG_FILE} and ${OPENVPN_LOG_FILE}."
+    print_error "Could not connect after $MAX_RETRIES attempts."
     return 1
 }
+
 
 stop_openvpn() {
     local pid
-
-    if [[ -f "$OPENVPN_PID_FILE" ]]; then
-        pid="$(cat "$OPENVPN_PID_FILE" 2>/dev/null || true)"
-
-        if [[ "$pid" =~ ^[0-9]+$ ]] && kill -0 "$pid" >/dev/null 2>&1; then
-            run_privileged kill "$pid" >/dev/null 2>&1 || true
-            sleep 2
-
-            if kill -0 "$pid" >/dev/null 2>&1; then
-                run_privileged kill -TERM "$pid" >/dev/null 2>&1 || true
-            fi
-        fi
-
-        rm -f "$OPENVPN_PID_FILE"
-    fi
-
-    if pgrep -x openvpn >/dev/null 2>&1; then
-        run_privileged pkill -x openvpn >/dev/null 2>&1 || true
-    fi
+    pid="$(managed_openvpn_pid)" || {
+        print_warning "No verified managed OpenVPN process. Unrelated VPNs are untouched."
+        return 1
+    }
+    cleanup_failed_openvpn
 }
+
 
 stop_nmcli() {
-    if [[ -n "$CONNECTION_NAME" ]] && command_exists nmcli; then
-        nmcli connection down "$CONNECTION_NAME"
-    fi
+    local uuid
+    uuid="$(nmcli_connection_uuid)" || { print_error "VPN UUID unavailable."; return 1; }
+    nmcli --wait "$CONNECT_TIMEOUT" connection down uuid "$uuid"
 }
+
 
 terminate_connection() {
-    log_activity "Stopping VPN connection..."
-
-    if ! check_connection >/dev/null 2>&1; then
-        print_warning "The VPN connection is already inactive."
-        return 0
-    fi
-
-    if [[ "$VPN_METHOD" == "openvpn" ]]; then
-        stop_openvpn
+    log_activity "Stopping configured VPN..."
+    load_settings || return 1
+    if [[ "$VPN_METHOD" == openvpn ]]; then
+        if ! openvpn_is_running; then
+            print_warning "No managed OpenVPN process found. Nothing was stopped."
+            return 0
+        fi
+        stop_openvpn || return 1
     else
-        stop_nmcli
+        if ! nmcli_connection_is_active; then
+            print_warning "Configured NetworkManager VPN already inactive."
+            return 0
+        fi
+        stop_nmcli || return 1
     fi
-
-    sleep 2
-
     if ! check_connection >/dev/null 2>&1; then
-        log_activity "VPN connection stopped."
-        print_success "VPN disconnected."
+        log_activity "Configured VPN stopped."
         return 0
     fi
-
-    print_error "The VPN connection still appears to be active."
+    print_error "The configured VPN is still connected."
     return 1
 }
+
 
 show_public_ip() {
     if ! command_exists curl; then
@@ -948,7 +983,7 @@ show_public_ip() {
 
     print_section "Public IP"
 
-    if ! curl -fsS --max-time 8 https://ipinfo.io/ip; then
+    if ! curl --proto "=https" -fsS --max-time 8 https://ipinfo.io/ip; then
         curl -fsS --max-time 8 https://api.ipify.org || {
             echo
             print_error "Could not retrieve the public IP address."
@@ -989,7 +1024,7 @@ show_diagnostics() {
     print_key_value "Timeout" "${CONNECT_TIMEOUT}s"
     print_key_value "Settings" "$CONFIG_FILE"
     print_key_value "History" "$LOG_FILE"
-    print_key_value "Log OpenVPN" "$OPENVPN_LOG_FILE"
+    print_key_value "OpenVPN log" "$OPENVPN_LOG_FILE"
     echo
     check_connection || true
 }
@@ -1051,12 +1086,12 @@ already registered in NetworkManager.
    to come up and records each attempt in the local history.
 
 3. Disconnect
-   For OpenVPN, the saved PID is used first. If needed, the openvpn process is
-   also stopped. For NetworkManager, nmcli brings the connection down.
+   Only a verified managed OpenVPN process is stopped. For NetworkManager,
+   only the configured connection UUID is brought down.
 
 4. Status
-   The check looks for an active nmcli connection, an openvpn process and common
-   VPN interfaces: tun, tap, ppp and wg.
+   Status only checks the selected NetworkManager UUID or the tracked OpenVPN
+   process and its initialization log. Other VPN interfaces are ignored.
 
 5. Diagnostics
    Shows system, method, active profile, local files and current status.
@@ -1087,7 +1122,7 @@ show_interface() {
     echo "  1) Connect"
     echo "  2) Disconnect"
     echo "  3) Status"
-    echo "  4) Show public IP"
+    echo "  4) Show public IP (not VPN verification)"
     echo "  5) Configure connection"
     echo "  6) History"
     echo "  7) Diagnostics"
@@ -1119,7 +1154,11 @@ main() {
             exit 1
         fi
 
-        read -r option
+        if ! IFS= read -r option; then
+            printf "\n"
+            print_info "Input closed; exiting."
+            return 0
+        fi
 
         case "$option" in
             1) establish_connection ;;
@@ -1142,4 +1181,6 @@ main() {
     done
 }
 
-main "$@"
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    main "$@"
+fi
